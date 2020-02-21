@@ -11,6 +11,9 @@
 All fast utility function and basic structure of strip packing problem
 */
 
+/*
+pieces for parallel scheduling problem with contiguity constraints
+*/
 class itemPiece
 {
 public:
@@ -18,6 +21,21 @@ public:
 	const std::string id;
 	const int height;
 };
+
+/*
+pieces for 1CBP
+*/
+class itemPieceWidth
+{
+public:
+	itemPieceWidth(const int t_id, const int t_width) :id(t_id), width(t_width) {}
+	const int id;
+	const int width;
+};
+
+
+
+
 class item
 {
 public:
@@ -51,6 +69,18 @@ const std::string getVarName(const int t_itemIdx, const int t_xPos)
 	item::ss.clear();
 	item::ss << "item" << t_itemIdx << "assign" << t_xPos;
 	return item::ss.str();
+}
+
+
+
+/*
+Utilities for strip packing algorithms
+*/
+inline bool compareItemByWidth(const item* t_i, const item* t_j);
+bool compareItemByWidth(const item* t_i, const item* t_j)
+{
+	return (t_i->width > t_j->width || (t_i->width == t_j->width && t_i->height > t_j->height) ||
+		(t_i->width == t_j->width && t_i->height == t_j->height && t_i->idx > t_j->idx));
 }
 
 
