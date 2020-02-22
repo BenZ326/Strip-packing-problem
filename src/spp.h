@@ -5,8 +5,15 @@
 #include <ilcplex/ilocplex.h>
 #include <map>
 #include <set>
+#include <algorithm>
 
 
+enum solutionStatus {
+	feasible,
+	infeasible,
+	pending,
+	numberStatus
+};
 /*
 All fast utility function and basic structure of strip packing problem
 */
@@ -42,11 +49,32 @@ public:
 	item(const int t_idx, const int t_width, const int t_height);
 	const int idx;
 	int width;
-	const int height;
-	std::vector<const itemPiece*> pieces;
+	int height;
 	static std::ostringstream ss;
 };
 
+
+struct coordinate
+{
+public:
+	coordinate(int t_x, int t_y) : x(t_x), y(t_y) {};
+	bool operator  == (const coordinate& cor1) const
+	{
+		return ((x == cor1.x) && (y == cor1.y));
+	}
+	bool operator<(const coordinate& cor1) const
+	{
+		return (x < cor1.x || (x == cor1.x) && (y < cor1.y));
+	}
+	coordinate operator=(const coordinate& cor1)
+	{
+		x = cor1.x;
+		y = cor1.y;
+		return *this;
+	}
+	int x;
+	int y;
+};
 
 constexpr int BigNumber = 999999;
 std::list<int> computeFX(const int t_x, const int t_idx, const std::vector<const item*>& t_items, bool flag);
@@ -57,7 +85,7 @@ int getMaximalHeight(const std::vector<const item*>& t_items);
 /*
 Instance of the SPP
 */
-void solve(const std::vector<const item*>& t_allItems, const std::map<int, std::list<int>>& t_mapPosWidth,
+double solve(const std::vector<const item*>& t_allItems, const std::map<int, std::list<int>>& t_mapPosWidth,
 	const std::map<int, std::list<int>>& t_mapPosHeight);
 
 
@@ -84,6 +112,18 @@ bool compareItemByWidth(const item* t_i, const item* t_j)
 }
 
 
+class compareItemByWHDifference
+{
+public:
+	const int _H;
+	const int _W;
+	compareItemByWHDifference(const int t_H, const int t_W) : _H(t_H), _W(t_W) {}
+	bool operator()(const item* t_i, const item*  t_j) const
+	{
+		return  std::min(_W - t_i->width, _H - t_i->height) > std::min(_W - t_j->width, _H - t_j->height);
+	}
+
+};
 
 
 

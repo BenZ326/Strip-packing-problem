@@ -11,11 +11,6 @@ item::item(const int t_idx, const int t_width, const int t_height) :idx(t_idx), 
 	item::ss.str("");
 	item::ss.clear();
 	item::ss << t_idx << "-";
-	for (size_t i = 0; i < t_width; ++i)
-	{
-		const itemPiece* piece = new itemPiece(item::ss.str() + std::to_string(i + 1), t_height);
-		pieces.push_back(piece);
-	}
 }
 int readData(const std::string& t_file, std::vector<const item*>& t_items)
 {

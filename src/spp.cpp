@@ -64,7 +64,7 @@ int getMaximalHeight(const std::vector<const item*>& t_items)
 /*
 Build the SPP model and solve
 */
-void solve(const std::vector<const item*>& t_allItems, const std::map<int, std::list<int>>& t_mapPosWidth,
+double solve(const std::vector<const item*>& t_allItems, const std::map<int, std::list<int>>& t_mapPosWidth,
 	const std::map<int, std::list<int>>& t_mapPosHeight)
 {
 	// data preparation
@@ -82,7 +82,7 @@ void solve(const std::vector<const item*>& t_allItems, const std::map<int, std::
 		for (const auto& it2 : t_mapPosWidth.find(it->idx)->second)
 		{
 			auto varName = getVarName(it->idx, it2);
-			IloNumVar var(env, 0, 1, ILOINT, varName.c_str());
+			IloNumVar var(env, 0, 1, ILOFLOAT, varName.c_str());
 			allVars.insert(std::pair<std::string, IloNumVar>(varName, var));
 			expr += var;
 		}
@@ -113,9 +113,13 @@ void solve(const std::vector<const item*>& t_allItems, const std::map<int, std::
 	model.add(IloMinimize(env, z));
 	IloCplex cplex(env);
 	cplex.extract(model);
-	cplex.exportModel("spp.lp");
+	cplex.setOut(env.getNullStream());
+	cplex.setWarning(env.getNullStream());
+	//cplex.exportModel("spp.lp");
 	cplex.solve();
-	std::cout << "The lower bound of the problem is " << cplex.getObjValue() << std::endl;
+	double result = cplex.getObjValue();
+	env.end();
+	return result;
 }
 
 
