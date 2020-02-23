@@ -15,6 +15,7 @@ public:
 	static int bigNumber;
 	static int BBMaxExplNodesPerPack;				// maximal number of explored nodes for perfect packing (for the BB algorithm)
 	static int BBMaxExplNodesNonPerPack;		// maximal number of explored nodes for non-perfect packing (for the BB algorithm)
+	static int interestingStatics;
 public:
 	BLEU(const std::vector<const item*>& t_items, const int t_W, const int t_TrialHeight);
 	BLEU(const std::vector<const item*>& t_items, const int t_W);
@@ -28,6 +29,7 @@ protected:
 	//preprocessing and bounds	
 protected:
 	// 5.1 preprocessing
+	void reassignItemsIdx();
 	void preprocessingFixItems();
 	void preprocessingReduceW();
 	void preprocessingModifyItemWidth();
@@ -59,6 +61,13 @@ the y-check algorithm---------------------------------------------------end
 /*
 The branch and bound algorithms----------------------------------------start
 */
+class oneDimensionItem
+{
+public:
+	oneDimensionItem(const int& t_weight, const int& t_value) :weight(t_weight), value(t_value) {}
+	const int weight;
+	const int value;
+};
 class BBNode
 {
 public:
@@ -77,9 +86,9 @@ protected:
 	void makeBranch(const std::unique_ptr<BBNode>& t_currentNode, 
 		std::stack<std::unique_ptr<BBNode>>& t_dfstree) const;
 	const bool bounding(const std::unique_ptr<BBNode>& t_currentNode) const;
+	const bool dynamicCuts(const std::unique_ptr<BBNode>& t_currentNode) const;
 
 
-	
 
 
 /*

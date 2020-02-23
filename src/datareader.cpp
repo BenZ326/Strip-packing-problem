@@ -35,6 +35,7 @@ int readData(const std::string& t_file, std::vector<const item*>& t_items)
 			t_items.push_back(rec);
 			if (res[0] == n) break;
 		}
+
 	}
 	else 		std::cout << "cann't open the file" << t_file << std::endl;
 	return maxWidth;

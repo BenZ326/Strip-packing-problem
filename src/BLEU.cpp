@@ -5,12 +5,13 @@
 #include "knapsack.h"
 #include <iostream>
 #include <stack>
-
+#include <chrono>
 
 double BLEU::tolerance = 0.0001;
 int BLEU::bigNumber = 999999;
 int BLEU::BBMaxExplNodesPerPack = 10000000;
 int BLEU::BBMaxExplNodesNonPerPack = 50000;
+int BLEU::interestingStatics = 0;
 
 /*
 
@@ -20,6 +21,7 @@ BLEU::BLEU(const std::vector<const item*>& t_items, const int t_W, const int t_T
 {
 	// sort the items by the nonincreasing of width and breaking ties by nonincreasing height
 	std::sort(_allItems.begin(), _allItems.end(), compareItemByWidth);
+	this->reassignItemsIdx();
 }
 
 BLEU::BLEU(const std::vector<const item*>& t_items, const int t_W)
@@ -27,14 +29,30 @@ BLEU::BLEU(const std::vector<const item*>& t_items, const int t_W)
 {
 	// sort the items by the nonincreasing of width and breaking ties by nonincreasing height
 	std::sort(_allItems.begin(), _allItems.end(), compareItemByWidth);
+	this->reassignItemsIdx();
 	this->preprocessing();
 	this->bounds();
 	_trialHeight = _bestLowerBound;
 }
 
+/*
+reassign idx for items
+*/
+void BLEU::reassignItemsIdx()
+{
+	int idx = 0;
+	for (auto it = _allItems.begin(); it != _allItems.end(); ++it)
+	{
+		const_cast<item*>(*it)->idx = idx++;
+	}
+}
+
 void BLEU::takeOff()
 {
+	auto start = std::chrono::high_resolution_clock::now();
 	std::cout<<"result of the b&b "<<this->branchAndBound()<<std::endl;
+	std::cout << "\t the b&b took as long as " <<
+		(std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now() - start)).count() / 1000000.0;
 }
 
 
@@ -109,6 +127,11 @@ const bool BLEU::bounding(const std::unique_ptr<BBNode>& t_currentNode) const
 	if (remainingArea > spaceArea)
 		return true;
 	// dynamic cuts:
+	if (this->dynamicCuts(t_currentNode))
+	{
+		BLEU::interestingStatics++;
+		return true;
+	}
 	return false;
 }
 
@@ -130,7 +153,7 @@ void  BLEU::makeBranch(const std::unique_ptr<BBNode>& t_currentNode,
 	// pack j on the column
 	std::vector<const item*> copyRemainingItems = t_currentNode->remainingItems;
 	std::sort(copyRemainingItems.begin(), copyRemainingItems.end(), compareItemByIdx);
-	for(size_t i =0; i<copyRemainingItems.size();++i)
+	for(int i = copyRemainingItems.size()-1;i>=0;--i)
 	{
 		auto chosenItem = copyRemainingItems[i];
 		whPair pair(chosenItem->height, chosenItem->width);
@@ -164,7 +187,7 @@ void  BLEU::makeBranch(const std::unique_ptr<BBNode>& t_currentNode,
 		}
 		children.push_back(std::move(child));
 	}
-	for (auto it = children.begin(); it != children.end(); ++it)
+	for (auto it = children.rbegin(); it != children.rend(); ++it)
 		t_dfstree.push(std::move((*it)));
 }
 
@@ -173,7 +196,6 @@ const solutionStatus BLEU::branchAndBound() const
 	int lb = _bestLowerBound;
 	while (true)
 	{
-		lb++;
 		int maxExpNodes;
 		std::unique_ptr<BBNode>	root(new BBNode(_processedItems, _processedW, lb));
 		if (this->LowerBound1() == root->trialHeight) maxExpNodes = BLEU::BBMaxExplNodesPerPack;
@@ -182,7 +204,7 @@ const solutionStatus BLEU::branchAndBound() const
 		dfsTree.push(std::move(root));
 		int numberExploredNodes = 0;
 		//numberExploredNodes <= maxExpNodes
-		while (!dfsTree.empty() && numberExploredNodes < 50000)
+		while (!dfsTree.empty() && numberExploredNodes < maxExpNodes)
 		{
 			const auto currentNode = std::move(dfsTree.top());
 			dfsTree.pop();
@@ -198,17 +220,181 @@ const solutionStatus BLEU::branchAndBound() const
 			}
 			else
 			{
+				numberExploredNodes++;
 				// bounding the current Node
 				if (this->bounding(currentNode))
 					continue;
 				// make branch
-				this->makeBranch(currentNode, dfsTree);
-				numberExploredNodes++;
+				this->makeBranch(currentNode, dfsTree);	
 			}
 		}
+		if (numberExploredNodes >= BLEU::BBMaxExplNodesNonPerPack)
+			std::cout << "exceed the node limit";
+		std::cout << "The dynamic cuts bounded " << BLEU::interestingStatics << " nodes";
+		lb++;
 	}
 }
 
+const bool BLEU::dynamicCuts(const std::unique_ptr<BBNode>& t_currentNode) const
+{
+	std::list<coordinate> leftCorners;
+	int prev = t_currentNode->trialHeight;
+	for (size_t i=0; i<t_currentNode->columnsOccupiedHeight.size(); ++i)
+	{
+		if (prev > t_currentNode->columnsOccupiedHeight[i])
+		{
+			coordinate cords(i, t_currentNode->columnsOccupiedHeight[i]);
+			leftCorners.push_back(cords);
+		}
+		prev = t_currentNode->columnsOccupiedHeight[i];
+	}
+	bool result = false;
+	size_t tmpSize = leftCorners.size();
+	/*
+	s[i][0]: the width of the i^th stage,
+	s[i][1]: the height of the i^th stage
+	g[i][0]: the x coordinate of the i^th left corner
+	g[i][1]: the y coordinate of the i^th left corner
+	l[i][0]: the realizable maximal width
+	l[i][1]: the realizable maximal height
+	*/
+	int** s = new int*[tmpSize];
+	int** g = new int*[tmpSize];
+	int** l = new int*[tmpSize];
+	for (size_t i = 0; i < tmpSize; ++i)
+	{
+		s[i] = new int[2];
+		g[i] = new int[2];
+		l[i] = new int[2];
+	}
+	int i = 0;
+	int tmpXPrev = -1;			// store the x coordinate of the previous left corner
+	int tmpYPrev = -1;			// store the y coordinate of the previous left corner
+	/*
+	At each left corner, the length can be updated for the onging left corner,
+	while the width can only be updated by the upcoming left corner
+	*/
+	for (std::list<coordinate>::const_iterator iter = leftCorners.begin();
+		iter != leftCorners.end(); ++iter)
+	{
+		g[i][0] = t_currentNode->maxiItemIdxColumns.size() - (*iter).x;
+		g[i][1] = t_currentNode->trialHeight - (*iter).y;
+		if (tmpXPrev == -1)
+		{
+			tmpXPrev = (*iter).x;
+			tmpYPrev = (*iter).y;
+			s[i][1] = t_currentNode->trialHeight - (*iter).y;
+		}
+		else
+		{
+			s[i - 1][0] = (*iter).x - tmpXPrev;
+			s[i][1] = tmpYPrev - (*iter).y;
+			tmpXPrev = (*iter).x;
+			tmpYPrev = (*iter).y;
+		}
+		if (i == tmpSize - 1)
+			s[i][0] = t_currentNode->maxiItemIdxColumns.size() - (*iter).x;
+		++i;
+	}
+
+	/*
+	compute the remaining available area (in the paper, it is denoted as V_pi)
+	*/
+	int vPi = 0;
+	for (size_t i = 0; i < tmpSize; ++i)
+		vPi += g[i][1] * s[i][0];
+
+	/*
+	preapre the onedimensional items for running the DP
+	*/
+	std::vector<const oneDimensionItem*> oneDim4HeightVec;
+	std::vector<const oneDimensionItem*> oneDim4WidthVec;
+	int accumulatedArea = 0;			//accumulated Area of the items considered so far
+	for (std::vector<const item*>::const_iterator iter = t_currentNode->remainingItems.begin();
+		iter != t_currentNode->remainingItems.end(); ++iter)
+	{
+		
+		const oneDimensionItem* oneDimItemH = new oneDimensionItem((*iter)->height, (*iter)->height);
+		const oneDimensionItem* oneDimItemW = new oneDimensionItem((*iter)->width, (*iter)->width);
+		oneDim4HeightVec.push_back(oneDimItemH);
+		oneDim4WidthVec.push_back(oneDimItemW);
+	}
+	std::vector<std::vector<int>> l0ValueOverItems;
+	std::vector<std::vector<int>> l1ValueOverItems;
+	for (size_t i = 0; i < tmpSize; ++i)
+	{
+		l0ValueOverItems.push_back(dynamicPrg4KnapSack<oneDimensionItem>(oneDim4WidthVec, g[i][0],0));
+		l1ValueOverItems.push_back(dynamicPrg4KnapSack<oneDimensionItem>(oneDim4HeightVec, g[i][1],0));
+	}
+	/*
+		calculate the values for matrix l
+		*/
+	for (size_t j = 0; j<t_currentNode->remainingItems.size();++j)
+	{
+		accumulatedArea += t_currentNode->remainingItems [j]->height*t_currentNode->remainingItems[j]->width;
+		int A = 0;
+		int sum_B = 0;
+		std::vector<int> B;
+		B.clear();
+		for (size_t i = 0; i < tmpSize; ++i)
+		{
+			l[i][0] = l0ValueOverItems[i][j];
+			l[i][1] = l1ValueOverItems[i][j];
+		}
+		for (size_t i = 0; i < tmpSize; ++i)
+		{
+			A += s[i][0] * (g[i][1] - l[i][1]) + s[i][1] * (g[i][0] - l[i][0]) - (g[i][1] - l[i][1])*(g[i][0] - l[i][0]);
+			if (i < tmpSize - 1)
+			{
+				A += (g[i][1] - l[i][1])*(g[i + 1][0] - l[i + 1][0]);
+			}
+			//if (t_currentNode->remainingItems.size() < tmpSize)
+			//{
+			//	if (i == 0)
+			//		B.push_back((g[1][0] - l[1][0] + s[0][0] - g[0][0] + l[0][0])*(s[0][1] - g[0][1] + l[0][1]));
+			//	if (i == tmpSize - 1)
+			//		B.push_back((s[i][0] - g[i][0] + l[i][0])*(g[i - 1][1] - l[i - 1][1] + s[i][1] - g[i][1] + l[i][1]));
+			//	if (i > 0 && i < tmpSize - 1)
+			//		B.push_back((g[i + 1][0] - l[i + 1][0] + s[i][0] - g[i][0] + l[i][0])*(g[i - 1][1] - l[i - 1][1] + s[i][1] - g[i][1] + l[i][1]));
+			//}
+		}
+		//if (!B.empty())
+		//{
+		//	std::sort(B.begin(), B.end());
+		//	for (size_t k = 0; k < leftCorners.size() - t_currentNode->remainingItems.size(); ++k)
+		//	{
+		//		sum_B += B[k];
+		//	}
+		//}
+		if (vPi - (A + sum_B) < accumulatedArea)
+		{
+			result = true;
+			break;
+		}
+	}
+		
+	/*
+	Release the heap
+	*/
+	{
+		for (size_t i = 0; i < tmpSize; ++i)
+		{
+			delete[] s[i];
+			delete[] g[i];
+			delete[] l[i];
+		}
+		delete[] s;
+		delete[] g;
+		delete[] l;
+		for (std::vector<const oneDimensionItem*>::iterator iter = oneDim4HeightVec.begin(); iter != oneDim4HeightVec.end();
+			++iter)
+			delete (*iter);
+		for (std::vector<const oneDimensionItem*>::iterator iter = oneDim4WidthVec.begin(); iter != oneDim4WidthVec.end();
+			++iter)
+			delete (*iter);
+	}
+	return result;
+}
 
 
 //The branch and bound algorithm -----------------------------------------------------------------------------end
@@ -337,7 +523,7 @@ void BLEU::bounds()
 	_bestLowerBound = std::max(lb1, lb2);
 	int lb3 = this->LowerBound3();
 	_bestLowerBound = std::max({ _bestLowerBound, lb3, lb4, lb5 });
-	std::cout << "Lower bound is " << _bestLowerBound << std::endl;
+	std::cout << "Lower bound is " << lb1<< std::endl;
 }
 
 const int BLEU::LowerBound1() const
