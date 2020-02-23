@@ -1,6 +1,6 @@
 #pragma once
 #include "datareader.h"
-
+#include <stack>
 class itemPieceWidth;
 /*
 Fully reproduce the paper: Combinatorial Benders' Cuts for the strip packing problem
@@ -17,6 +17,7 @@ public:
 	static int BBMaxExplNodesNonPerPack;		// maximal number of explored nodes for non-perfect packing (for the BB algorithm)
 public:
 	BLEU(const std::vector<const item*>& t_items, const int t_W, const int t_TrialHeight);
+	BLEU(const std::vector<const item*>& t_items, const int t_W);
 	void preprocessing();
 	void bounds();
 	void takeOff();			// start to solve
@@ -63,17 +64,18 @@ class BBNode
 public:
 	BBNode(const std::vector<const item*>& t_remainingItems, const int t_Width, const int t_TrialHeight);
 	BBNode(const BBNode& t_BBNode);					// copy constructor
+	BBNode(const BBNode& t_BBNode, const item* t_placedItem);			// invoked when making a branch, the t_placedItem is the packed item in this time of branching
 	const int trialHeight;
 	int leftMostIdx;
 	std::vector<int> columnsOccupiedHeight;			// [10,5,3,2] means 10 units of height in the 1st column is occupied and 5 units for the 2nd column...
 	std::vector<const item*> remainingItems;			// make heap
 	std::vector<int> maxiItemIdxColumns;				// [3,5,1,7] means among items placed in 1st column, 3 is the largest index of...
-	std::vector<coordinate> itemPositions;				// store the final positions of all the items in processedItems (same order)
+	std::vector<coordinate> itemPositions;				// store the final positions of all the items in processedItems (respect the order in processedItems)
 };
 protected:
 	const solutionStatus branchAndBound() const;
 	void makeBranch(const std::unique_ptr<BBNode>& t_currentNode, 
-		const std::stack<std::unique_ptr<BBNode>>& t_dfstree) const;
+		std::stack<std::unique_ptr<BBNode>>& t_dfstree) const;
 	const bool bounding(const std::unique_ptr<BBNode>& t_currentNode) const;
 
 

@@ -41,7 +41,28 @@ public:
 };
 
 
-
+struct whPair
+{
+	whPair() {}
+	whPair(int t_h, int t_w) : h(t_h), w(t_w) {};
+	whPair(const whPair& t_wh) :h(t_wh.h), w(t_wh.w) {}
+	bool operator == (const whPair& o1) const
+	{
+		return ((this->h == o1.h) && (this->w == o1.w));
+	}
+	bool operator<(const whPair& wh) const
+	{
+		return (h < wh.h) || ((h == wh.h) && (w < wh.w));
+	}
+	whPair operator=(const whPair& wh)
+	{
+		this->h = wh.h;
+		this->w = wh.w;
+		return *this;
+	}
+	int h;
+	int w;
+};
 
 class item
 {
@@ -50,6 +71,7 @@ public:
 	const int idx;
 	int width;
 	int height;
+	int idxHelper;						// an alternative identifier
 	static std::ostringstream ss;
 };
 
@@ -111,6 +133,17 @@ bool compareItemByWidth(const item* t_i, const item* t_j)
 		(t_i->width == t_j->width && t_i->height == t_j->height && t_i->idx > t_j->idx));
 }
 
+inline bool compareItemByHeight(const item* t_i, const item* t_j);
+bool compareItemByHeight(const item* t_i, const item* t_j)
+{
+	return t_i->height < t_j->height || (t_i->height == t_j->height && t_i->idx > t_j->idx);
+}
+
+inline bool compareItemByIdx(const item* t_i, const item* t_j);
+bool compareItemByIdx(const item* t_i, const item* t_j)
+{
+	return t_i->idx > t_j->idx;
+}
 
 class compareItemByWHDifference
 {
@@ -122,7 +155,16 @@ public:
 	{
 		return  std::min(_W - t_i->width, _H - t_i->height) > std::min(_W - t_j->width, _H - t_j->height);
 	}
+};
 
+class compareItemByHeight
+{
+	// for heap
+public:
+	bool operator()(const item* t_i, const item*  t_j) const
+	{
+		return  t_i->height > t_j->height || (t_i->height == t_j->height && t_i->idx > t_j->idx);
+	}
 };
 
 
