@@ -53,6 +53,7 @@ void BLEU::takeOff()
 	std::cout<<"result of the b&b "<<this->branchAndBound()<<std::endl;
 	std::cout << "\t the b&b took as long as " <<
 		(std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now() - start)).count() / 1000000.0;
+	std::cout << std::endl;
 }
 
 
@@ -196,6 +197,7 @@ const solutionStatus BLEU::branchAndBound() const
 	int lb = _bestLowerBound;
 	while (true)
 	{
+		BLEU::interestingStatics = 0;
 		int maxExpNodes;
 		std::unique_ptr<BBNode>	root(new BBNode(_processedItems, _processedW, lb));
 		if (this->LowerBound1() == root->trialHeight) maxExpNodes = BLEU::BBMaxExplNodesPerPack;
@@ -214,6 +216,7 @@ const solutionStatus BLEU::branchAndBound() const
 				if (this->yCheckAlgorithm(_processedW, _trialHeight, currentNode->itemPositions, _processedItems))
 				{
 					std::cout << "best lb is " << lb;
+					std::cout << "The dynamic cuts bounded " << BLEU::interestingStatics << " nodes ";
 					return solutionStatus::feasible;
 				}
 				else continue;							// the node can not be transformed to a feasible solution for the SPP
@@ -348,24 +351,24 @@ const bool BLEU::dynamicCuts(const std::unique_ptr<BBNode>& t_currentNode) const
 			{
 				A += (g[i][1] - l[i][1])*(g[i + 1][0] - l[i + 1][0]);
 			}
-			//if (t_currentNode->remainingItems.size() < tmpSize)
-			//{
-			//	if (i == 0)
-			//		B.push_back((g[1][0] - l[1][0] + s[0][0] - g[0][0] + l[0][0])*(s[0][1] - g[0][1] + l[0][1]));
-			//	if (i == tmpSize - 1)
-			//		B.push_back((s[i][0] - g[i][0] + l[i][0])*(g[i - 1][1] - l[i - 1][1] + s[i][1] - g[i][1] + l[i][1]));
-			//	if (i > 0 && i < tmpSize - 1)
-			//		B.push_back((g[i + 1][0] - l[i + 1][0] + s[i][0] - g[i][0] + l[i][0])*(g[i - 1][1] - l[i - 1][1] + s[i][1] - g[i][1] + l[i][1]));
-			//}
+			if (t_currentNode->remainingItems.size() < tmpSize)
+			{
+				if (i == 0)
+					B.push_back((g[1][0] - l[1][0] + s[0][0] - g[0][0] + l[0][0])*(s[0][1] - g[0][1] + l[0][1]));
+				if (i == tmpSize - 1)
+					B.push_back((s[i][0] - g[i][0] + l[i][0])*(g[i - 1][1] - l[i - 1][1] + s[i][1] - g[i][1] + l[i][1]));
+				if (i > 0 && i < tmpSize - 1)
+					B.push_back((g[i + 1][0] - l[i + 1][0] + s[i][0] - g[i][0] + l[i][0])*(g[i - 1][1] - l[i - 1][1] + s[i][1] - g[i][1] + l[i][1]));
+			}
 		}
-		//if (!B.empty())
-		//{
-		//	std::sort(B.begin(), B.end());
-		//	for (size_t k = 0; k < leftCorners.size() - t_currentNode->remainingItems.size(); ++k)
-		//	{
-		//		sum_B += B[k];
-		//	}
-		//}
+		if (!B.empty())
+		{
+			std::sort(B.begin(), B.end());
+			for (size_t k = 0; k < leftCorners.size() - t_currentNode->remainingItems.size(); ++k)
+			{
+				sum_B += B[k];
+			}
+		}
 		if (vPi - (A + sum_B) < accumulatedArea)
 		{
 			result = true;
@@ -523,17 +526,17 @@ void BLEU::bounds()
 	_bestLowerBound = std::max(lb1, lb2);
 	int lb3 = this->LowerBound3();
 	_bestLowerBound = std::max({ _bestLowerBound, lb3, lb4, lb5 });
-	std::cout << "Lower bound is " << lb1<< std::endl;
+	std::cout << "Lower bound is " << _bestLowerBound<< std::endl;
 }
 
 const int BLEU::LowerBound1() const
 {
 	int sum = 0;
-	for (const auto& it : _allItems)
+	for (const auto& it : _processedItems)
 	{
 		sum += it->height*it->width;
 	}
-	return int(std::ceil(sum / _W));
+	return int(std::ceil(sum / _W)) + _processedH;
 }
 
 /*
