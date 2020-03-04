@@ -5,13 +5,7 @@
 #include <algorithm>
 #include<math.h>
 
-std::ostringstream item::ss;
-item::item(const int t_idx, const int t_width, const int t_height) :idx(t_idx), width(t_width), height(t_height) 
-{
-	item::ss.str("");
-	item::ss.clear();
-	item::ss << t_idx << "-";
-}
+
 int readData(const std::string& t_file, std::vector<const item*>& t_items)
 {
 	int maxWidth;

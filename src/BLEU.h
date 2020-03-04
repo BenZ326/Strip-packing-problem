@@ -22,6 +22,7 @@ public:
 	void preprocessing();
 	void bounds();
 	void takeOff();			// start to solve
+	void dumpSolution(const char* file_name = "Solution.output") const;
 	
 // algorithms
 protected:
@@ -48,17 +49,6 @@ const	double DualFeasibleFunction3(const int t_alpha, const int t_width) const;
 
 
 /*
-the y-check algorithm---------------------------------------------------start
-*/
-bool yCheckAlgorithm(const int t_processedW, const int t_TrialHeight,const std::vector<coordinate>& itemPositions, 
-	const std::vector<const item*> t_processedItems) const;
-
-
-/*
-the y-check algorithm---------------------------------------------------end
-*/
-
-/*
 The branch and bound algorithms----------------------------------------start
 */
 class oneDimensionItem
@@ -72,28 +62,56 @@ class BBNode
 {
 public:
 	BBNode(const std::vector<const item*>& t_remainingItems, const int t_Width, const int t_TrialHeight);
+	BBNode(const std::vector<const item*>& t_remainingItems, const std::vector<coordinate>& t_Cords,
+		const int t_Width, const int t_TrialHeight);
 	BBNode(const BBNode& t_BBNode);					// copy constructor
 	BBNode(const BBNode& t_BBNode, const item* t_placedItem);			// invoked when making a branch, the t_placedItem is the packed item in this time of branching
 	const int trialHeight;
 	int leftMostIdx;
 	std::vector<int> columnsOccupiedHeight;			// [10,5,3,2] means 10 units of height in the 1st column is occupied and 5 units for the 2nd column...
 	std::vector<const item*> remainingItems;			// make heap
+	std::vector<const item*> packedItems;
 	std::vector<int> maxiItemIdxColumns;				// [3,5,1,7] means among items placed in 1st column, 3 is the largest index of...
 	std::vector<coordinate> itemPositions;				// store the final positions of all the items in processedItems (respect the order in processedItems)
 };
 protected:
-	const solutionStatus branchAndBound() const;
+	const solutionStatus branchAndBound();
 	void makeBranch(const std::unique_ptr<BBNode>& t_currentNode, 
 		std::stack<std::unique_ptr<BBNode>>& t_dfstree) const;
 	const bool bounding(const std::unique_ptr<BBNode>& t_currentNode) const;
 	const bool dynamicCuts(const std::unique_ptr<BBNode>& t_currentNode) const;
 
-
-
-
 /*
 The branch and bound algorithms----------------------------------------end
 */
+
+
+/*
+the y-check algorithm---------------------------------------------------start
+*/
+bool yCheckAlgorithm(const int t_processedW, const int t_TrialHeight, const std::vector<coordinate>& itemPositions,
+	const std::vector<const item*> t_processedItems);
+
+/*
+The enumerate tree described right before section 4
+*/
+solutionStatus yCheckEnumerationTree(const std::vector<const item*>& t_InterestItems, const std::vector<coordinate>& t_Cords,
+	const int t_Height, const int t_Width) ;
+bool yCheckBounding(const std::unique_ptr<BBNode>& t_currentNode) const;
+void yCheckMakeBranch(const std::unique_ptr<BBNode>& t_currentNode, 
+	std::stack<std::unique_ptr<BBNode>>& t_yEntree) const;
+/*
+Given column heights, return a Niche which is featured as the start column and the end column
+the return value is a two dimensional array, one element of the array is the start column of the niche
+while the second is the end column of the niche
+
+*/
+std::vector<int> getNiche(const std::vector<int>& t_ColumnHeights) const;
+
+/*
+the y-check algorithm---------------------------------------------------end
+*/
+
 
 private:
 	std::vector<const item*> _allItems;
@@ -105,6 +123,7 @@ private:
 	int _processedW;
 	int _bestLowerBound;
 	int _trialHeight;			// the current height being tried
+	std::vector<coordinate> _finalSolution;
 
 
 

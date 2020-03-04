@@ -69,11 +69,188 @@ t_processedItems: all the items to be packed in the strip
 Return: if it is a feasible solution for the SPP then return true, else false
 */
 bool BLEU::yCheckAlgorithm(const int t_processedW, const int t_TrialHeight, const std::vector<coordinate>& itemPositions,
-	const std::vector<const item*> t_processedItems) const
+	const std::vector<const item*> t_processedItems) 
 
 {
-	return true;
+	return this->yCheckEnumerationTree(t_processedItems, itemPositions, t_TrialHeight, t_processedW) == solutionStatus::feasible;
 }
+
+/*
+
+t_InterestItems: the items that are going through the enumeration tree
+t_xCords: the corresonding x coordinates of the items, with the same ordering as that of t_interestItems
+t_Height: the height of a bin to pack items in t_InterestItems
+t_Width: the width of a bin to pack items in t_InterestItems
+*/
+solutionStatus BLEU::yCheckEnumerationTree(const std::vector<const item*>& t_InterestItems, const std::vector<coordinate>& t_Cords,
+	const int t_Height, const int t_Width)
+{
+	std::unique_ptr<BBNode> root(new BBNode(t_InterestItems, t_Cords, t_Width, t_Height));
+	std::stack<std::unique_ptr<BBNode>> yEnTree;
+	yEnTree.push(std::move(root));
+	int exploreNodes = 0;
+	while (!yEnTree.empty())
+	{
+		const auto currentNode = std::move(yEnTree.top());
+		yEnTree.pop();
+		if (currentNode->remainingItems.empty())
+		{
+			_finalSolution = currentNode->itemPositions;
+			return solutionStatus::feasible;
+		}
+		if (this->yCheckBounding(currentNode))	continue;
+		exploreNodes++;
+		this->yCheckMakeBranch(currentNode, yEnTree);
+		if (exploreNodes > 2 * 10000000) 	return solutionStatus::pending;
+	}
+	return solutionStatus::infeasible;
+}
+
+bool BLEU::yCheckBounding(const std::unique_ptr<BBNode>& t_currentNode) const
+{
+	// fathoming criteria 1
+	for (size_t i = 0; i < t_currentNode->columnsOccupiedHeight.size(); ++i)
+	{
+		int sumHeight = t_currentNode->columnsOccupiedHeight[i];
+		for (auto it : t_currentNode->remainingItems)
+		{
+			if (t_currentNode->itemPositions[it->idxHelper].x <= i &&
+				t_currentNode->itemPositions[it->idxHelper].x + it->width-1 >= i)
+			{
+				sumHeight += it->height;
+			}
+			if (sumHeight > t_currentNode->trialHeight)
+				return true;
+		}
+	}
+
+	if (!t_currentNode->packedItems.empty())
+	{
+		const item* tmpItem = t_currentNode->packedItems.back();
+		// fathoming criteria 3
+		for (const auto& it : t_currentNode->remainingItems)
+		{
+			if (tmpItem->height == it->height && tmpItem->width == it->width &&
+				t_currentNode->itemPositions[tmpItem->idxHelper].x == t_currentNode->itemPositions[it->idxHelper].x&&
+				it->idx < tmpItem->idx)
+				return true;
+		}
+	}
+	
+	if (!t_currentNode->packedItems.empty()) {
+		// fathoming criteria 4
+		const item* itemJ = t_currentNode->packedItems.back();
+		auto p_js = t_currentNode->itemPositions[itemJ->idxHelper].x;
+		for (size_t i = 0; i < t_currentNode->packedItems.size() - 1; ++i)
+		{
+			const item* itemK = t_currentNode->packedItems[i];
+			auto xCord = t_currentNode->itemPositions[itemK->idxHelper].x;
+			if (p_js == xCord && itemJ->idx < itemK->idx && itemJ->width == itemK->width)
+			{
+				if (t_currentNode->itemPositions[itemK->idxHelper].y == t_currentNode->columnsOccupiedHeight[p_js] - itemJ->height- itemK->height)
+				{
+					return true;
+				}
+			}
+		}
+	}
+	return false;
+}
+
+void BLEU::yCheckMakeBranch(const std::unique_ptr<BBNode>& t_currentNode,
+	std::stack<std::unique_ptr<BBNode>>& t_yEntree) const
+{
+	std::list<std::unique_ptr<BBNode>> children;
+	std::vector<const item*> copyRemainingItems = t_currentNode->remainingItems;
+	std::sort(copyRemainingItems.begin(), copyRemainingItems.end(), compareItemByxCords(t_currentNode->itemPositions));
+	auto niche = this->getNiche(t_currentNode->columnsOccupiedHeight);
+	// h(l)
+	int l_niche = niche[0] == 0 ? t_currentNode->trialHeight : t_currentNode->columnsOccupiedHeight[niche[0] - 1];
+	// h(r)
+	int r_niche = niche[1] == t_currentNode->columnsOccupiedHeight.size() - 1 ? t_currentNode->trialHeight : t_currentNode->columnsOccupiedHeight[niche[1] + 1];
+	bool emptyItem = true;
+	for (size_t i = 0; i < copyRemainingItems.size(); ++i)
+	{
+		if (t_currentNode->itemPositions[copyRemainingItems[i]->idxHelper].x >= niche[0] &&
+			t_currentNode->itemPositions[copyRemainingItems[i]->idxHelper].x + copyRemainingItems[i]->width - 1 <= niche[1])
+		{
+			bool fathom = false;
+			const int& p_js = t_currentNode->itemPositions[copyRemainingItems[i]->idxHelper].x;
+			 //fathoming criteria 5
+			if (p_js > niche[0])
+			{
+				for (size_t k= 0; k < copyRemainingItems.size(); ++k)
+				{
+					if (t_currentNode->itemPositions[copyRemainingItems[k]->idxHelper].x >= niche[0] &&
+						t_currentNode->itemPositions[copyRemainingItems[k]->idxHelper].x + copyRemainingItems[k]->width - 1 <= niche[1])
+					{
+						if (i == k)
+							continue;
+						const int& p_ks = t_currentNode->itemPositions[copyRemainingItems[k]->idxHelper].x;
+						if (p_ks + copyRemainingItems[k]->width -1 <= p_js)
+						{
+							if (copyRemainingItems[k]->height <= std::min(l_niche - t_currentNode->columnsOccupiedHeight[niche[0]], copyRemainingItems[i]->height))
+							{
+								fathom = true;
+							}
+						}
+					
+					}
+				}
+			
+			}
+			if (fathom) continue;
+			std::unique_ptr<BBNode> child(new BBNode(*t_currentNode, copyRemainingItems[i]));
+			for (size_t j = child->itemPositions[copyRemainingItems[i]->idxHelper].x; 
+				j < child->itemPositions[copyRemainingItems[i]->idxHelper].x + copyRemainingItems[i]->width; ++j)
+			{
+				child->itemPositions[copyRemainingItems[i]->idxHelper].y = child->columnsOccupiedHeight[j];
+				child->columnsOccupiedHeight[j] += copyRemainingItems[i]->height;
+			}
+			// fathoming criteria 2
+			if (emptyItem && child->columnsOccupiedHeight[p_js] + copyRemainingItems[i]->height<= std::min(l_niche, r_niche))
+				emptyItem = false;
+			children.push_back(std::move(child));
+		}
+	}
+
+	if (emptyItem)
+	{
+		std::unique_ptr<BBNode> child(new BBNode(*t_currentNode));
+		for (size_t j = niche[0]; j <= niche[1]; ++j)
+		{
+			child->columnsOccupiedHeight[j] = std::min(l_niche, r_niche);
+		}
+		children.push_back(std::move(child));
+	}
+	for (auto it = children.begin(); it != children.end(); ++it)
+		t_yEntree.push(std::move(*it));
+}
+/*
+Get the Niche 
+t_ColumnsHeight: it is the height of each column 
+the return value is a two dimensional array, one element of the array is the start column of the niche
+while the second is the end column of the niche
+*/
+std::vector<int> BLEU::getNiche(const std::vector<int>& t_ColumnHeights) const
+{
+	std::vector<int>result (2, 0);
+	auto ptr = std::min_element(t_ColumnHeights.begin(), t_ColumnHeights.end());
+	int startCol =  ptr - t_ColumnHeights.begin();
+	int endCol = t_ColumnHeights.size()-1;
+	for (size_t i = startCol+1; i < t_ColumnHeights.size(); i++)
+	{
+		if (t_ColumnHeights[i] > (*ptr))
+		{
+			endCol = i - 1;
+			break;
+		}
+	}
+	result[0] = startCol;
+	result[1] = endCol;
+	return result;
+}
+
 /*
 the y-check algorithm ---------------------------------------------------------------------------------------end
 */
@@ -88,7 +265,7 @@ remainingItems(t_remainingItems), trialHeight(t_TrialHeight)
 {
 	leftMostIdx = 0;
 	columnsOccupiedHeight = std::vector<int>(t_Width,0);			// the order is consistent to the left most column -> the right most column
-	maxiItemIdxColumns = std::vector<int>(t_Width,0);				// the order is consistent to the left most column -> the right most column
+	maxiItemIdxColumns = std::vector<int>(t_Width,-1);				// the order is consistent to the left most column -> the right most column
 	coordinate dummy(-1, -1);
 	itemPositions = std::vector<coordinate>(t_remainingItems.size(), dummy);
 }
@@ -100,11 +277,25 @@ BLEU::BBNode::BBNode(const BBNode& t_BBNode):trialHeight(t_BBNode.trialHeight)
 	remainingItems = t_BBNode.remainingItems;			// make heap
 	maxiItemIdxColumns = t_BBNode.maxiItemIdxColumns;				// [3,5,1,7] means among items placed in 1st column, 3 is the largest index of...
 	itemPositions = t_BBNode.itemPositions;
+	packedItems = t_BBNode.packedItems;
+}
+
+// build a BBNode for the y check algorithm
+BLEU::BBNode::BBNode(const std::vector<const item*>& t_remainingItems, const std::vector<coordinate>& t_Cords,
+	const int t_Width, const int t_TrialHeight):remainingItems(t_remainingItems), trialHeight(t_TrialHeight)
+{
+	leftMostIdx = 0;
+	columnsOccupiedHeight = std::vector<int>(t_Width, 0);			// the order is consistent to the left most column -> the right most column
+	maxiItemIdxColumns = std::vector<int>(t_Width, 0);				// the order is consistent to the left most column -> the right most column
+	coordinate dummy(-1, -1);
+	itemPositions = t_Cords;
 }
 
 BLEU::BBNode::BBNode(const BBNode& t_BBNode, const item* t_placedItem)			// invoked when making a branch, the t_placedItem is the packed item in this time of branching
 :trialHeight(t_BBNode.trialHeight)
 {
+	packedItems = t_BBNode.packedItems;
+	packedItems.push_back(t_placedItem);
 	for (const auto& it : t_BBNode.remainingItems)
 	{
 		if (it->idx == t_placedItem->idx)
@@ -119,7 +310,20 @@ BLEU::BBNode::BBNode(const BBNode& t_BBNode, const item* t_placedItem)			// invo
 
 const bool BLEU::bounding(const std::unique_ptr<BBNode>& t_currentNode) const
 {
-	// standard continuous bounding which is described in the section 5.2 "branch and bound for the spp(L)" 
+	//fathoming criteria 1
+	if (!t_currentNode->packedItems.empty())
+	{
+		const item* tmpItem = t_currentNode->packedItems.back();
+		for (const auto & it : t_currentNode->remainingItems)
+		{
+			if (it->height == tmpItem->height && it->width == tmpItem->width && it->idx < tmpItem->idx)
+				return true;
+		}
+	}
+	// fathoming criteria 2 is merged in the makeBranch function
+
+	// standard continuous bounding which is described in the section 5.2 "branch and bound for the spp(L)"
+	// fathoming criteria 3
 	int remainingArea = 0;
 	for(const auto& it : t_currentNode->remainingItems) 	remainingArea += it->height*it->width;
 	int spaceArea = 0;
@@ -127,6 +331,7 @@ const bool BLEU::bounding(const std::unique_ptr<BBNode>& t_currentNode) const
 		spaceArea += (t_currentNode->trialHeight - t_currentNode->columnsOccupiedHeight[i]);
 	if (remainingArea > spaceArea)
 		return true;
+	// fathoming criteria 4
 	// dynamic cuts:
 	if (this->dynamicCuts(t_currentNode))
 	{
@@ -134,6 +339,7 @@ const bool BLEU::bounding(const std::unique_ptr<BBNode>& t_currentNode) const
 		return true;
 	}
 	return false;
+	
 }
 
 void  BLEU::makeBranch(const std::unique_ptr<BBNode>& t_currentNode,
@@ -141,6 +347,7 @@ void  BLEU::makeBranch(const std::unique_ptr<BBNode>& t_currentNode,
 {
 	std::set<whPair> packedPairs;
 	std::list<std::unique_ptr<BBNode>> children;
+	std::list<std::unique_ptr<BBNode>> emptyChild;
 	// selects the left-most column
 	int selectedColumn = t_currentNode->leftMostIdx;   // start from 0, so it ranges from 0, 1,2,3,....., _processedW-1
 	// pack nothing
@@ -149,27 +356,32 @@ void  BLEU::makeBranch(const std::unique_ptr<BBNode>& t_currentNode,
 		std::unique_ptr<BBNode> child(new BBNode(*t_currentNode.get()));
 		child->columnsOccupiedHeight[selectedColumn] = child->trialHeight;
 		child->leftMostIdx++;
-		children.push_back(std::move(child));
+		emptyChild.push_back(std::move(child));
 	}
 	// pack j on the column
 	std::vector<const item*> copyRemainingItems = t_currentNode->remainingItems;
-	std::sort(copyRemainingItems.begin(), copyRemainingItems.end(), compareItemByIdx);
-	for(int i = copyRemainingItems.size()-1;i>=0;--i)
+	std::sort(copyRemainingItems.begin(), copyRemainingItems.end(),compareItemByIdx);
+	for(int i = 0;  i< copyRemainingItems.size();i++)
 	{
 		auto chosenItem = copyRemainingItems[i];
-		whPair pair(chosenItem->height, chosenItem->width);
-		if (packedPairs.find(pair) != packedPairs.end())
-			continue;
 		// check width of the item 
 		if (chosenItem->width + selectedColumn > t_currentNode->columnsOccupiedHeight.size())
 			continue;
+		// check height of the item
+		if (chosenItem->height + t_currentNode->columnsOccupiedHeight[selectedColumn] > t_currentNode->trialHeight)
+			continue;
 		if (t_currentNode->maxiItemIdxColumns[selectedColumn] > chosenItem->idx)
 			continue;
-		int nextMin = 0;
-		if (i < copyRemainingItems.size() - 1)				// not the last one
-			nextMin = copyRemainingItems[i + 1]->height;	
+		int minHeight = 99999;
+		if (i < copyRemainingItems.size() - 1)
+		{
+			for (size_t k = i + 1; k < copyRemainingItems.size(); ++k)
+			{
+				if (minHeight > copyRemainingItems[k]->height)
+					minHeight = copyRemainingItems[k]->height;
+			}
+		}
 		// make a child by pack the item on the column, update the coordinate 
-		packedPairs.insert(pair);
 		std::unique_ptr<BBNode> child(new BBNode(*t_currentNode.get(), copyRemainingItems[i]));
 		child->itemPositions[chosenItem->idxHelper].x = selectedColumn;
 		child->itemPositions[chosenItem->idxHelper].y = t_currentNode->columnsOccupiedHeight[selectedColumn];
@@ -177,9 +389,11 @@ void  BLEU::makeBranch(const std::unique_ptr<BBNode>& t_currentNode,
 		// if there exists an item can be added on the column
 		for (int offset = 0; offset <= chosenItem->width - 1; ++offset)
 		{
-			if (chosenItem->height + t_currentNode->columnsOccupiedHeight[selectedColumn + offset] + nextMin
+			if (chosenItem->height + t_currentNode->columnsOccupiedHeight[selectedColumn + offset] + minHeight
 				<= t_currentNode->trialHeight)
+			{
 				child->columnsOccupiedHeight[selectedColumn + offset] += chosenItem->height;
+			}
 			else
 			{
 				child->columnsOccupiedHeight[selectedColumn + offset] = t_currentNode->trialHeight;
@@ -188,18 +402,22 @@ void  BLEU::makeBranch(const std::unique_ptr<BBNode>& t_currentNode,
 		}
 		children.push_back(std::move(child));
 	}
+	// load the empty child
+	if (!emptyChild.empty())
+		t_dfstree.push(std::move(emptyChild.back()));
 	for (auto it = children.rbegin(); it != children.rend(); ++it)
 		t_dfstree.push(std::move((*it)));
 }
 
-const solutionStatus BLEU::branchAndBound() const
+const solutionStatus BLEU::branchAndBound()
 {
 	int lb = _bestLowerBound;
+	int heightForRestItems = lb - _processedH;
+	BLEU::interestingStatics = 0;
+	int maxExpNodes;
 	while (true)
 	{
-		BLEU::interestingStatics = 0;
-		int maxExpNodes;
-		std::unique_ptr<BBNode>	root(new BBNode(_processedItems, _processedW, lb));
+		std::unique_ptr<BBNode>	root(new BBNode(_processedItems, _processedW, heightForRestItems));
 		if (this->LowerBound1() == root->trialHeight) maxExpNodes = BLEU::BBMaxExplNodesPerPack;
 		else maxExpNodes = BLEU::BBMaxExplNodesNonPerPack;
 		std::stack<std::unique_ptr<BBNode>> dfsTree;
@@ -213,29 +431,30 @@ const solutionStatus BLEU::branchAndBound() const
 			// if it's a feasible solution then invoke the y-check algorithm
 			if (currentNode->remainingItems.empty())
 			{
-				if (this->yCheckAlgorithm(_processedW, _trialHeight, currentNode->itemPositions, _processedItems))
+				if (this->yCheckAlgorithm(_processedW, heightForRestItems, currentNode->itemPositions, _processedItems))
 				{
-					std::cout << "best lb is " << lb;
-					std::cout << "The dynamic cuts bounded " << BLEU::interestingStatics << " nodes ";
+					std::cout << "\nThe best height is " << heightForRestItems+_processedH;
+					std::cout << "\nThe dynamic cuts bounded " << BLEU::interestingStatics << " nodes ";
 					return solutionStatus::feasible;
 				}
 				else continue;							// the node can not be transformed to a feasible solution for the SPP
 			}
 			else
 			{
-				numberExploredNodes++;
 				// bounding the current Node
 				if (this->bounding(currentNode))
 					continue;
 				// make branch
-				this->makeBranch(currentNode, dfsTree);	
+				numberExploredNodes++;
+				this->makeBranch(currentNode, dfsTree);
 			}
 		}
 		if (numberExploredNodes >= BLEU::BBMaxExplNodesNonPerPack)
 			std::cout << "exceed the node limit";
 		std::cout << "The dynamic cuts bounded " << BLEU::interestingStatics << " nodes";
-		lb++;
+		heightForRestItems++;
 	}
+	
 }
 
 const bool BLEU::dynamicCuts(const std::unique_ptr<BBNode>& t_currentNode) const
@@ -826,6 +1045,30 @@ const	 double BLEU::DualFeasibleFunction3(const int t_alpha, const int t_width) 
 		return std::floor(_processedW / double(t_alpha));
 	if (t_width < (_processedW / 2.0))
 		return 2 * std::floor(t_width / double(t_alpha));
+}
+
+
+void BLEU::dumpSolution(const char* file_name) const
+{
+	std::ofstream ofs(file_name);
+	std::ostringstream ss;
+	for (size_t i = 0; i < _processedItems.size(); ++i)
+	{
+		ss.str("");
+		ss.clear();
+		ss << _processedItems[i]->idx << "," << _finalSolution[i].x << "," << _finalSolution[i].y << "\n";
+		ofs << ss.str();
+	}
+	ofs.close();
+	ofs.open("Rectangle.output");
+	for (size_t i = 0; i < _processedItems.size(); ++i)
+	{
+		ss.str("");
+		ss.clear();
+		ss << _processedItems[i]->idx << "," << _processedItems[i]->width << "," << _processedItems[i]->height << "\n";
+		ofs << ss.str();
+	}
+	ofs.close();
 }
 
 

@@ -44,7 +44,8 @@ public:
 struct whPair
 {
 	whPair() {}
-	whPair(int t_h, int t_w) : h(t_h), w(t_w) {};
+	whPair(int t_h, int t_w) :h(t_h), w(t_w){ }
+	whPair(int t_h, int t_w, int t_x) : h(t_h), w(t_w){};
 	whPair(const whPair& t_wh) :h(t_wh.h), w(t_wh.w) {}
 	bool operator == (const whPair& o1) const
 	{
@@ -58,10 +59,12 @@ struct whPair
 	{
 		this->h = wh.h;
 		this->w = wh.w;
+		//this->xCord = wh.xCord;
 		return *this;
 	}
 	int h;
 	int w;
+	//int xCord;		// x coordinate used for y check
 };
 
 class item
@@ -72,6 +75,7 @@ public:
 	int width;
 	int height;
 	int idxHelper;						// an alternative identifier
+	std::vector<const item*> subItems;
 	static std::ostringstream ss;
 };
 
@@ -88,7 +92,7 @@ public:
 	{
 		return (x < cor1.x || (x == cor1.x) && (y < cor1.y));
 	}
-	coordinate operator=(const coordinate& cor1)
+	coordinate& operator=(const coordinate& cor1)
 	{
 		x = cor1.x;
 		y = cor1.y;
@@ -142,7 +146,7 @@ bool compareItemByHeight(const item* t_i, const item* t_j)
 inline bool compareItemByIdx(const item* t_i, const item* t_j);
 bool compareItemByIdx(const item* t_i, const item* t_j)
 {
-	return t_i->idx > t_j->idx;
+	return t_i->idx < t_j->idx;
 }
 
 class compareItemByWHDifference
@@ -167,6 +171,17 @@ public:
 	}
 };
 
+class compareItemByxCords
+{
+public:
+	std::vector<coordinate> xCords;
+	compareItemByxCords(const std::vector<coordinate>& t_xCords) : xCords(t_xCords) {}
+	bool operator()(const item* t_i, const item* t_j) const
+	{
+		return xCords[t_i->idxHelper].x > xCords[t_j->idxHelper].x || (xCords[t_i->idxHelper].x == xCords[t_j->idxHelper].x 
+			&& t_i->idx>t_j->idx);
+	}
+};
 
 
 
