@@ -18,6 +18,12 @@ item::item(const int t_idx, const int t_width, const int t_height) :idx(t_idx), 
 	subItems.clear();
 }
 
+item::item(const int t_idx, const int t_width, const int t_height, const int t_idxHelper) : idx(t_idx), width(t_width), height(t_height),
+idxHelper(t_idxHelper)
+{
+	subItems.clear();
+}
+
 std::list<int> computeFX(const int t_x,  const int t_idx,
 	const std::vector<const item*>& t_items, bool flag)
 {

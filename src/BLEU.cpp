@@ -60,6 +60,293 @@ void BLEU::takeOff()
 /*
 the y-check algorithm ---------------------------------------------------------------------------------------start
 */
+
+
+/*
+processing for the y-check algorithm
+*/
+
+const std::vector<const item*> BLEU::preprocess4yCheck(const std::vector<const item*>& t_InterestItems, std::vector<coordinate>& t_Cords,
+	const int t_Height, const int t_Width) const
+{
+	//auto Items = this->preprocessedFirst4yCheck(t_InterestItems, t_Cords);
+	auto Items = this->preprocessedSecond4yCheck(t_InterestItems, t_Cords);
+	std::vector<const item*> result;
+	for (const auto& it : Items)
+	{
+		result.push_back(std::move(it));
+	}
+	return result;
+}
+
+const std::vector<item*> BLEU::preprocessedFirst4yCheck(const std::vector<const item*>& t_InterestItems,
+	std::vector<coordinate>& t_Cords) const
+{
+	std::vector<item*> allItems;
+	// copy all the items
+	for (const auto& it : t_InterestItems)
+	{
+		item* newItem = new item(*it);
+		allItems.push_back(newItem);
+		newItem->subItems.clear();
+	}
+	// get the left items and right items structured as a map
+	auto maps = this->getLeftsAndRights(allItems, t_Cords);
+	while (true)
+	{
+		auto & leftItems = maps[0];
+		auto & rightItems = maps[1];
+		bool exit = true;
+		for (const auto& it : leftItems) 
+			exit &= (it.second.empty());
+		//for (const auto& it : rightItems) exit &= (it.second.empty());
+		if (exit) break;
+		std::sort(allItems.begin(), allItems.end(), compareItemByxCords(t_Cords));
+		for (size_t i = 0; i < allItems.size(); ++i)
+		{
+			item* tmpItem = allItems[i];
+			auto& lefts = leftItems.find(tmpItem->idx)->second;
+			auto& rights = rightItems.find(tmpItem->idx)->second;
+			// merge left
+			bool leftMergeable = mergeItems4yCheck(allItems,tmpItem, leftItems, rightItems,
+				lefts, t_Cords, true);
+			// merge right
+			//bool rightMergeable = mergeItems4yCheck(allItems,tmpItem, leftItems, rightItems,
+			//	rights, t_Cords, false);
+			if (leftMergeable)
+			{	
+				maps = this->getLeftsAndRights(allItems, t_Cords);
+				break;
+			}
+		}
+	}
+	return allItems;
+}
+
+
+const std::vector<item*> BLEU::preprocessedSecond4yCheck(const std::vector<const item*>& t_InterestItems,
+	std::vector<coordinate>& t_Cords) const
+{
+
+}
+
+/*
+The following is well described in the 3.2 section of the paper
+1) first step:
+	if leftItems is empty, exit function with false returned
+	check all the left items to see if h_i <= h_j for any i
+		if yes, try to merge the items, if mergeable, then return true, if not go to the second step
+2) second step:
+	get t_startColumn, get the items that are packed on t_startColumn with the largest w.
+	then only remains item i in the left that satisfy: p_i >= t_startColumn + w, p_i + w_i <= p_j
+	then go to the first step
+*/
+bool BLEU::mergeItems4yCheck(std::vector<item*>& t_allItems, item* t_i, std::map<int, std::list<item*>>& t_leftItems,
+	std::map<int, std::list<item*>>& t_rightItems,
+	std::list<item*>& t_Items, std::vector<coordinate>& t_Cords, 
+	const bool t_left) const
+{
+	if (t_Items.empty()) return false;
+	// check lefts
+	auto& p_js = t_Cords[t_i->idxHelper].x;
+	if (t_left)
+	{
+		while (!t_Items.empty())
+		{
+			// step 1
+			std::vector<int> allHeights;
+			std::vector<const item*> transferredItems;
+			std::vector<coordinate> transferredCords;
+			int startColumn = this->getFirstColumn(t_Items, t_Cords);
+			int maxWidth = this->getMaxWidth(startColumn, t_Items, t_Cords);
+			for (const auto& it : t_Items) 	allHeights.push_back(it->height);
+			if (*(std::max_element(allHeights.begin(), allHeights.end())) <= t_i->height)
+			{
+				this->transferItemsAndCords4YEnumeration(t_Items, t_Cords, transferredItems, transferredCords);
+				if (this->yCheckEnumerationTree(transferredItems, transferredCords, t_i->height,
+					t_Cords[t_i->idxHelper].x - (startColumn + maxWidth -1)) == solutionStatus::feasible)
+				{
+					// merge
+					// 1) update t_i 
+					for (const auto& it : t_Items)
+					{
+						t_i->subItems.push_back(it);
+						t_Cords[it->idxHelper].x = -1;
+					}
+					t_i->width += (t_Cords[t_i->idxHelper].x - startColumn - maxWidth);
+					t_Cords[t_i->idxHelper].x = startColumn;
+					auto ptr = t_allItems.begin();
+					// 2) update allItems
+					while (ptr != t_allItems.end())
+					{
+						bool found = false;
+						for (const auto & it : t_i->subItems)
+						{
+							if ((*ptr)->idx == it->idx)
+							{
+								found = true;
+								ptr = t_allItems.erase(ptr);
+								break;
+							}
+						}
+						if (!found) ptr++;
+					}
+					// 3) update maps
+					t_Items.clear();
+					this->releaseTmpItems(transferredItems);
+					return true;
+				}
+				else
+				{
+					this->releaseTmpItems(transferredItems);
+					auto ptr = t_Items.begin();
+					while (ptr != t_Items.end())
+					{
+						if (t_Cords[(*ptr)->idxHelper].x == startColumn)
+						{
+							ptr = t_Items.erase(ptr);
+						}
+						else ptr++;
+					}
+					if (t_Items.empty()) continue;
+					startColumn = this->getFirstColumn(t_Items, t_Cords);
+				}
+			}
+			// modify the left items
+			maxWidth = this->getMaxWidth(startColumn, t_Items, t_Cords);
+			auto ptr = t_Items.begin();
+			while(ptr != t_Items.end())
+			{
+				auto& p_is = t_Cords[(*ptr)->idxHelper].x;
+				if (!( p_is >= maxWidth + startColumn
+					&& p_is + (*ptr)->width <= p_js))
+				{
+					ptr = t_Items.erase(ptr);
+				}
+				else ptr++;
+			}
+			
+		}
+		return false;
+	}
+
+	// check rights
+	else
+	{
+	
+	
+	
+	
+		return false;
+	}
+}
+
+const int BLEU::getFirstColumn(const std::list<item*>& t_lefts, const std::vector<coordinate>& t_Cords) const
+{
+	if (t_lefts.empty()) return -1;
+	std::vector<int> xCords;
+	for (const auto& it : t_lefts)
+	{
+		xCords.push_back(t_Cords[it->idxHelper].x);
+	}
+	return *std::min_element(xCords.begin(), xCords.end());
+}
+
+const int BLEU::getLastColumn(const std::list<item*>& t_rights, const std::vector<coordinate>& t_Cords) const
+{
+	if (t_rights.empty()) return -1;
+	std::vector<int> xCords;
+	for (const auto& it : t_rights)
+	{
+		xCords.push_back(t_Cords[it->idxHelper].x);
+	}
+	return *std::max_element(xCords.begin(), xCords.end());
+}
+
+/*
+Given a column, t_column, find the item that has the largest width of which the first peice being placed at column t_column
+*/
+const int BLEU::getMaxWidth(const int t_column, const std::list<item*>& t_Items, const std::vector<coordinate>& t_Cords) const
+{
+	std::vector<int> widths;
+	for (const auto& it : t_Items)
+	{
+		if (t_Cords[it->idxHelper].x == t_column)
+			widths.push_back(it->width);
+	}
+	return *std::max_element(widths.begin(), widths.end());
+}
+
+void BLEU::transferItemsAndCords4YEnumeration(const std::list<item*>& t_OrigItems, const std::vector<coordinate>& t_OrigCords,
+	std::vector<const item*>& t_Items, std::vector<coordinate>& t_Cords) const
+{
+	int idxHelper = 0;
+	for (const auto& it : t_OrigItems)
+	{
+		coordinate cord(t_OrigCords[it->idxHelper].x, t_OrigCords[it->idxHelper].y);
+		t_Cords.push_back(cord);
+		const item* tmp = new item(it->idx, it->width, it->height, idxHelper++);
+		t_Items.push_back(tmp);
+	}
+	for (size_t i = 0; i < t_Cords.size(); ++i)
+	{
+		t_Cords[i].x = i;
+	}
+}
+
+
+void BLEU::mergeItems(item* t_i, std::list<item*>& t_Items, std::map<int, std::list<item*>>& t_allItems,
+	std::vector<coordinate>& t_Cords) const
+{
+	
+
+}
+
+const std::vector<std::map<int, std::list<item*>>> BLEU::getLeftsAndRights(const std::vector<item*>& t_allItems,
+	const std::vector<coordinate>& t_Cords) const
+{
+	std::vector<std::map<int, std::list<item*>>> res;
+	std::map<int, std::list<item*>> leftItems;
+	std::map<int, std::list<item*>> rightItems;
+	for (const auto& j_it : t_allItems)
+	{
+		leftItems.insert(std::pair<int, std::list<item*>>(j_it->idx, std::list<item*>()));
+		rightItems.insert(std::pair<int, std::list<item*>>(j_it->idx, std::list<item*>()));
+		for (const auto& i_it : t_allItems)
+		{
+			// left items
+			if (j_it->idx == i_it->idx)
+				continue;
+
+			auto p_js = t_Cords[j_it->idxHelper].x;
+			auto p_is = t_Cords[i_it->idxHelper].x;
+			if (p_is + i_it->width <= p_js)
+			{
+				leftItems.find(j_it->idx)->second.push_back(i_it);
+			}
+			// right items
+			if (p_js + j_it->width <= p_is)
+			{
+				rightItems.find(j_it->idx)->second.push_back(i_it);
+			}
+		}
+	}
+	res.push_back(leftItems);
+	res.push_back(rightItems);
+	return res;
+}
+
+void BLEU::releaseTmpItems(std::vector<const item*>& t_Items) const
+{
+	for (const auto & it : t_Items)
+	{
+		if (!it->subItems.empty())
+		{
+			this->releaseTmpItems(const_cast<item*>(it)->subItems);
+		}
+	}
+}
+
 /*
 Arguements:
 t_processedW: the width of the strip
@@ -83,7 +370,7 @@ t_Height: the height of a bin to pack items in t_InterestItems
 t_Width: the width of a bin to pack items in t_InterestItems
 */
 solutionStatus BLEU::yCheckEnumerationTree(const std::vector<const item*>& t_InterestItems, const std::vector<coordinate>& t_Cords,
-	const int t_Height, const int t_Width)
+	const int t_Height, const int t_Width) const
 {
 	std::unique_ptr<BBNode> root(new BBNode(t_InterestItems, t_Cords, t_Width, t_Height));
 	std::stack<std::unique_ptr<BBNode>> yEnTree;
@@ -95,7 +382,6 @@ solutionStatus BLEU::yCheckEnumerationTree(const std::vector<const item*>& t_Int
 		yEnTree.pop();
 		if (currentNode->remainingItems.empty())
 		{
-			_finalSolution = currentNode->itemPositions;
 			return solutionStatus::feasible;
 		}
 		if (this->yCheckBounding(currentNode))	continue;
@@ -431,13 +717,21 @@ const solutionStatus BLEU::branchAndBound()
 			// if it's a feasible solution then invoke the y-check algorithm
 			if (currentNode->remainingItems.empty())
 			{
-				if (this->yCheckAlgorithm(_processedW, heightForRestItems, currentNode->itemPositions, _processedItems))
+				std::vector<coordinate> Cords4yCheck = currentNode->itemPositions;
+				auto Items = this->preprocess4yCheck(_processedItems, Cords4yCheck, heightForRestItems, _processedW);
+				std::cout<<this->yCheckAlgorithm(_processedW, heightForRestItems, currentNode->itemPositions, _processedItems);
+				if (this->yCheckAlgorithm(_processedW, heightForRestItems, Cords4yCheck, Items))
 				{
 					std::cout << "\nThe best height is " << heightForRestItems+_processedH;
 					std::cout << "\nThe dynamic cuts bounded " << BLEU::interestingStatics << " nodes ";
+					this->releaseTmpItems(Items);
 					return solutionStatus::feasible;
 				}
-				else continue;							// the node can not be transformed to a feasible solution for the SPP
+				else
+				{
+					this->releaseTmpItems(Items);
+					continue;							// the node can not be transformed to a feasible solution for the SPP
+				}
 			}
 			else
 			{

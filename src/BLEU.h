@@ -96,7 +96,7 @@ bool yCheckAlgorithm(const int t_processedW, const int t_TrialHeight, const std:
 The enumerate tree described right before section 4
 */
 solutionStatus yCheckEnumerationTree(const std::vector<const item*>& t_InterestItems, const std::vector<coordinate>& t_Cords,
-	const int t_Height, const int t_Width) ;
+	const int t_Height, const int t_Width) const ;
 bool yCheckBounding(const std::unique_ptr<BBNode>& t_currentNode) const;
 void yCheckMakeBranch(const std::unique_ptr<BBNode>& t_currentNode, 
 	std::stack<std::unique_ptr<BBNode>>& t_yEntree) const;
@@ -108,6 +108,36 @@ while the second is the end column of the niche
 */
 std::vector<int> getNiche(const std::vector<int>& t_ColumnHeights) const;
 
+/*
+To preprocess all the items considered in the branch and bound tree to reduce the complexity of the further y-check problem 
+*/
+const std::vector<const item*> preprocess4yCheck(const std::vector<const item*>& t_InterestItems, std::vector<coordinate>& t_Cords,
+	const int t_Height, const int t_Width) const;
+
+const std::vector<item*> preprocessedFirst4yCheck(const std::vector<const item*>& t_InterestItems, 
+	std::vector<coordinate>& t_Cords) const;
+
+const std::vector<item*> preprocessedSecond4yCheck(const std::vector<const item*>& t_InterestItems,
+	std::vector<coordinate>& t_Cords) const;
+/*
+// input: i, items in the left of i, coordinates, start column, right or left (true is left, false is right)
+// output: bool, change the items in the left of i
+*/
+bool mergeItems4yCheck(std::vector<item*>& t_allItems,item* t_i, std::map<int, std::list<item*>>& t_leftItems, 
+	std::map<int, std::list<item*>>& t_rightItems
+	,std::list<item*>& t_Items, std::vector<coordinate>& t_Cords,
+	const bool t_left) const;
+
+const int getFirstColumn(const std::list<item*>& t_lefts, const std::vector<coordinate>& t_Cords) const;
+const int getLastColumn(const std::list<item*>& t_rights, const std::vector<coordinate>& t_Cords) const;
+const int getMaxWidth(const int t_column,const std::list<item*>& t_Items, const std::vector<coordinate>& t_Cords) const;
+void transferItemsAndCords4YEnumeration(const std::list<item*>& t_OrigItems, const std::vector<coordinate>& t_OrigCords
+	,std::vector<const item*>& t_TransferredItems, std::vector<coordinate>& t_TransferredCords) const;
+
+const std::vector<std::map<int, std::list<item*>>> getLeftsAndRights(const std::vector<item*>& t_allItems,
+	const std::vector<coordinate>& t_Cords) const;
+void mergeItems(item* t_i, std::list<item*>& t_Items, std::map<int, std::list<item*>>& t_allItems, std::vector<coordinate>& t_Cords) const;
+void releaseTmpItems(std::vector<const item*>& t_Items) const;
 /*
 the y-check algorithm---------------------------------------------------end
 */

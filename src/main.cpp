@@ -19,7 +19,6 @@ int main()
 		int W = readData(filePath, allItems);
 		BLEU alg(allItems,W);
 		alg.takeOff();
-		alg.dumpSolution();
 		for (auto it = allItems.begin(); it != allItems.end(); ++it)
 			delete (*it);
 	}

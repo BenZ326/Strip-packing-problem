@@ -71,6 +71,7 @@ class item
 {
 public:
 	item(const int t_idx, const int t_width, const int t_height);
+	item(const int t_idx, const int t_width, const int t_height, const int t_idxHelper);
 	int idx;
 	int width;
 	int height;
