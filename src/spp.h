@@ -138,6 +138,13 @@ bool compareItemByWidth(const item* t_i, const item* t_j)
 		(t_i->width == t_j->width && t_i->height == t_j->height && t_i->idx > t_j->idx));
 }
 
+inline bool compareItemByWidthLess(const item* t_i, const item* t_j);
+bool compareItemByWidthLess(const item* t_i, const item* t_j)
+{
+	return (t_i->width < t_j->width || (t_i->width == t_j->width && t_i->height < t_j->height) ||
+		(t_i->width == t_j->width && t_i->height == t_j->height && t_i->idx < t_j->idx));
+}
+
 inline bool compareItemByHeight(const item* t_i, const item* t_j);
 bool compareItemByHeight(const item* t_i, const item* t_j)
 {

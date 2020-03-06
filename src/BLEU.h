@@ -48,9 +48,15 @@ const double DualFeasibleFunction2(const int t_alpha, const int t_width) const ;
 const	double DualFeasibleFunction3(const int t_alpha, const int t_width) const;
 
 
+
+
+// rotate instances
+void rotateInstance(std::vector<const item*>& t_Items, int& t_binWidth, int& t_binHeight) const;
+const bool ifRotateInstance() const;
 /*
 The branch and bound algorithms----------------------------------------start
 */
+
 class oneDimensionItem
 {
 public:
@@ -115,9 +121,12 @@ const std::vector<const item*> preprocess4yCheck(const std::vector<const item*>&
 	const int t_Height, const int t_Width) const;
 
 const std::vector<item*> preprocessedFirst4yCheck(const std::vector<const item*>& t_InterestItems, 
-	std::vector<coordinate>& t_Cords) const;
+	std::vector<coordinate>& t_Cords, const int t_Width) const;
 
-const std::vector<item*> preprocessedSecond4yCheck(const std::vector<const item*>& t_InterestItems,
+void  preprocessedSecond4yCheck(std::vector<item*>& t_allItems,
+	std::vector<coordinate>& t_Cords, const int t_binWidth) const;
+
+void  preprocessedThird4yCheck(std::vector<item*>& t_allItems,
 	std::vector<coordinate>& t_Cords) const;
 /*
 // input: i, items in the left of i, coordinates, start column, right or left (true is left, false is right)
@@ -126,18 +135,25 @@ const std::vector<item*> preprocessedSecond4yCheck(const std::vector<const item*
 bool mergeItems4yCheck(std::vector<item*>& t_allItems,item* t_i, std::map<int, std::list<item*>>& t_leftItems, 
 	std::map<int, std::list<item*>>& t_rightItems
 	,std::list<item*>& t_Items, std::vector<coordinate>& t_Cords,
-	const bool t_left) const;
+	const bool t_left, const int t_binWidth) const;
 
 const int getFirstColumn(const std::list<item*>& t_lefts, const std::vector<coordinate>& t_Cords) const;
+const int getFirstColumn(const int t_prevStartColumn,const std::list<item*>& t_lefts, const std::vector<coordinate>& t_Cords) const;
 const int getLastColumn(const std::list<item*>& t_rights, const std::vector<coordinate>& t_Cords) const;
-const int getMaxWidth(const int t_column,const std::list<item*>& t_Items, const std::vector<coordinate>& t_Cords) const;
+const int getLastColumn(const int t_prevLastColumn, const std::list<item*>& t_rights, 
+	const std::vector<coordinate>& t_Cords) const;
+const int getMaxWidth(const int t_column,const std::list<item*>& t_Items, const std::vector<coordinate>& t_Cords, const bool t_left) const;
 void transferItemsAndCords4YEnumeration(const std::list<item*>& t_OrigItems, const std::vector<coordinate>& t_OrigCords
 	,std::vector<const item*>& t_TransferredItems, std::vector<coordinate>& t_TransferredCords) const;
 
+void merging(item* t_i, std::vector<item*>& t_allItems, std::vector<coordinate>& t_Cords,
+	const int t_startColumn, const int t_maxWidth, std::list<item*>& t_Items, const bool t_left) const;
 const std::vector<std::map<int, std::list<item*>>> getLeftsAndRights(const std::vector<item*>& t_allItems,
-	const std::vector<coordinate>& t_Cords) const;
+	const std::vector<coordinate>& t_Cords, const std::set<int>& t_coveredItems) const;
 void mergeItems(item* t_i, std::list<item*>& t_Items, std::map<int, std::list<item*>>& t_allItems, std::vector<coordinate>& t_Cords) const;
 void releaseTmpItems(std::vector<const item*>& t_Items) const;
+const bool checkSeparable(const std::list<item*>& t_Items, const std::vector<coordinate>& t_Cords, 
+	const int t_startColumn, const int t_maxWidth, const bool t_left) const;
 /*
 the y-check algorithm---------------------------------------------------end
 */
