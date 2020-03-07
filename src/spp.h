@@ -78,6 +78,10 @@ public:
 	int idxHelper;						// an alternative identifier
 	std::vector<const item*> subItems;
 	static std::ostringstream ss;
+	bool operator<(const item& t_item) const
+	{
+		return this->idx < t_item.idx;
+	}
 };
 
 

@@ -73,7 +73,11 @@ bool BLEU::yCheckAlgorithm(const int t_processedW, const int t_TrialHeight, cons
 	const std::vector<const item*> t_processedItems) 
 
 {
-	return this->yCheckEnumerationTree(t_processedItems, itemPositions, t_TrialHeight, t_processedW) == solutionStatus::feasible;
+	std::vector<coordinate> Cords4yCheck = itemPositions;
+	auto Items = this->preprocess4yCheck(t_processedItems, Cords4yCheck, t_TrialHeight, t_processedW);
+	bool result = (this->yCheckEnumerationTree(Items, Cords4yCheck, t_TrialHeight, t_processedW) == solutionStatus::feasible);
+	this->releaseTmpItems(Items);
+	return result;
 }
 
 /*
@@ -416,7 +420,6 @@ const solutionStatus BLEU::branchAndBound()
 	int binWidth = _processedW;
 	BLEU::interestingStatics = 0;
 	int maxExpNodes;
-	auto rotate = false;
 	while (true)
 	{
 		int tmpW = binWidth;
@@ -427,8 +430,8 @@ const solutionStatus BLEU::branchAndBound()
 			const item* tmp = new item(it->idx, it->width, it->height, it->idxHelper);
 			computedItems.push_back(tmp);
 		}
-		if(rotate)
-			this->rotateInstance(computedItems, tmpW, tmpH);
+		//if(this->ifRotateInstance(tmpH))
+		//	this->rotateInstance(computedItems, tmpW, tmpH);
 		std::cout << "W = " << tmpW << "H = " << tmpH << std::endl;
 		std::unique_ptr<BBNode>	root(new BBNode(computedItems, tmpW, tmpH));
 		if (this->LowerBound1() == heightForRestItems + _processedH) maxExpNodes = BLEU::BBMaxExplNodesPerPack;
@@ -436,8 +439,6 @@ const solutionStatus BLEU::branchAndBound()
 		std::stack<std::unique_ptr<BBNode>> dfsTree;
 		dfsTree.push(std::move(root));
 		int numberExploredNodes = 0;
-		//numberExploredNodes <= maxExpNodes
-		std::cout << "max nodes " << maxExpNodes;
 		while (!dfsTree.empty() && numberExploredNodes < maxExpNodes)
 		{
 			const auto currentNode = std::move(dfsTree.top());
@@ -445,23 +446,14 @@ const solutionStatus BLEU::branchAndBound()
 			// if it's a feasible solution then invoke the y-check algorithm
 			if (currentNode->remainingItems.empty())
 			{
-				std::vector<coordinate> Cords4yCheck = currentNode->itemPositions;
-				//if (!(Cords4yCheck[0].x == 0 && Cords4yCheck[1].x == 2
-				//	&& Cords4yCheck[2].x == 2 && Cords4yCheck[6].x == 2 && Cords4yCheck[5].x == 4))
-				//	continue;
-				auto Items = this->preprocess4yCheck(computedItems, Cords4yCheck, tmpH, tmpW);
-				std::cout << "\n Originally it has " << computedItems.size() << " items, after processed, it has " << Items.size() << std::endl;
-				std::cout << "\n It should be "<<yCheckAlgorithm(tmpW, tmpH, currentNode->itemPositions, computedItems)<<std::endl;
-				if (this->yCheckAlgorithm(tmpW, tmpH, Cords4yCheck, Items))
+				if (this->yCheckAlgorithm(tmpW, tmpH, currentNode->itemPositions, computedItems))
 				{
-					this->releaseTmpItems(Items);
 					this->releaseTmpItems(computedItems);
 					std::cout << "the best height is " << heightForRestItems + _processedH;
 					return solutionStatus::feasible;
 				}
 				else
 				{
-					this->releaseTmpItems(Items);
 					continue;							// the node can not be transformed to a feasible solution for the SPP
 				}
 			}
@@ -1047,18 +1039,17 @@ const int BLEU::LowerBound5()const
 if it should be rotated then rotate the instance, if not do nothing
 */
 
-const bool BLEU::ifRotateInstance() const
+const bool BLEU::ifRotateInstance(const int t_binHeight) const
 {
-	int maxHeight = getMaximalHeight(_processedItems);
 	int sumH = 0;
 	int sumW = 0;
 	for (size_t idx = 0; idx < _processedItems.size(); ++idx)
 	{
 		auto possiblePositionsWidth = computeFX(_processedW - _processedItems[idx]->width, idx,
 			_processedItems, true);
-		auto possiblePositionsHeight = computeFX(maxHeight - _processedItems[idx]->height, idx,
+		auto possiblePositionsHeight = computeFX(t_binHeight - _processedItems[idx]->height, idx,
 			_processedItems, false);
-		sumH += possiblePositionsHeight.size();
+		sumH  += possiblePositionsHeight.size();
 		sumW += possiblePositionsWidth.size();
 	}
 	return (sumH < sumW);

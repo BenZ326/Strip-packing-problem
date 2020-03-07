@@ -52,7 +52,7 @@ const	double DualFeasibleFunction3(const int t_alpha, const int t_width) const;
 
 // rotate instances
 void rotateInstance(std::vector<const item*>& t_Items, int& t_binWidth, int& t_binHeight) const;
-const bool ifRotateInstance() const;
+const bool ifRotateInstance(const int t_binHeight) const;
 /*
 The branch and bound algorithms----------------------------------------start
 */
@@ -127,7 +127,7 @@ void  preprocessedSecond4yCheck(std::vector<item*>& t_allItems,
 	std::vector<coordinate>& t_Cords, const int t_binWidth) const;
 
 void  preprocessedThird4yCheck(std::vector<item*>& t_allItems,
-	std::vector<coordinate>& t_Cords) const;
+	std::vector<coordinate>& t_Cords, const int t_binWidth) const;
 /*
 // input: i, items in the left of i, coordinates, start column, right or left (true is left, false is right)
 // output: bool, change the items in the left of i
