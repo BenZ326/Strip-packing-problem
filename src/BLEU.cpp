@@ -49,27 +49,47 @@ void BLEU::reassignItemsIdx()
 
 void BLEU::takeOff()
 {
-	auto start = std::chrono::high_resolution_clock::now();
 	//std::cout<<"result of the b&b "<<this->branchAndBound()<<std::endl;
-	std::vector<const item*> Items;
-	int binWidth = _processedW;
-	int binHeight = _bestLowerBound;
-	for (const auto& it : _processedItems)
+	double elapsedTime = 0.0;
+	int increment = 0;
+	while (true)
 	{
-		const item* tmp = new item(it->idx, it->width, it->height, it->idxHelper);
-		Items.push_back(tmp);
+		int binWidth = _processedW;
+		int binHeight = _bestLowerBound - _processedH + increment;
+		std::vector<const item*> Items;
+		for (const auto& it : _processedItems)
+		{
+			const item* tmp = new item(it->idx, it->width, it->height, it->idxHelper);
+			Items.push_back(tmp);
+		}
+		/*
+		auto rotate = this->ifRotateInstance(binHeight);
+		if (rotate)
+		{
+			std::cout << "rotate \n";
+			this->rotateInstance(Items, binWidth, binHeight);
+		}*/
+		auto start = std::chrono::high_resolution_clock::now();
+		std::cout << "W = " << binWidth << "H = "<<binHeight<<"\n";
+		//solutionStatus status = this->combinatorialBenders(Items, binWidth, binHeight);
+		auto status = this->branchAndBound(Items, binWidth, binHeight);
+		//std::cout << "\nresult of the b&b "<< status << std::endl;
+		elapsedTime += (std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now() - start)).count() / 1000000.0;
+		//std::cout << "result of the combinatorial benders is  " << status << "the height is "<<binHeight + _processedH<<std::endl;
+		if (status == solutionStatus::feasible)
+		{
+			this->releaseTmpItems(Items);
+			break;
+		}	
+		else
+		{
+			increment++;
+			this->releaseTmpItems(Items);
+		}
 	}
-	auto rotate = this->ifRotateInstance(_bestLowerBound);
-	if (rotate)
-	{
-		std::cout << "rotate ";
-		this->rotateInstance(Items, binWidth, binHeight);
-	}
-	//std::cout << "result of the b&b " << this->branchAndBound() << std::endl;
-	std::cout << "result of the b&b " << this->combinatorialBenders(Items, binWidth, binHeight) << std::endl;
-	std::cout << "\t the b&b took as long as " <<
-		(std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now() - start)).count() / 1000000.0;
-	std::cout << std::endl;
+	
+	std::cout << "The solution is " << _bestLowerBound + increment <<std::endl;
+	std::cout << "\t the algorithm took as long as " << elapsedTime<< std::endl;
 }
 
 
@@ -429,68 +449,47 @@ void  BLEU::makeBranch(const std::unique_ptr<BBNode>& t_currentNode,
 		t_dfstree.push(std::move((*it)));
 }
 
-const solutionStatus BLEU::branchAndBound()
+const solutionStatus BLEU::branchAndBound(const std::vector<const item*>& t_Items, const int t_binWidth,
+	const int t_binHeight)
 {
-	int lb = _bestLowerBound;
-	int heightForRestItems = lb - _processedH;
-	int binWidth = _processedW;
+	int tmpW = t_binWidth;
+	int tmpH = t_binHeight;
 	BLEU::interestingStatics = 0;
 	int maxExpNodes;
-	while (true)
+	std::unique_ptr<BBNode>	root(new BBNode(t_Items, tmpW, tmpH));
+	double totalArea = 0.0;
+	for (const auto& it : t_Items) totalArea += it->width*it->height;
+	if (tmpH == (totalArea/tmpW)) maxExpNodes = BLEU::BBMaxExplNodesPerPack;
+	else maxExpNodes = BLEU::BBMaxExplNodesNonPerPack;
+	std::stack<std::unique_ptr<BBNode>> dfsTree;
+	dfsTree.push(std::move(root));
+	int numberExploredNodes = 0;
+	while (!dfsTree.empty() && numberExploredNodes < maxExpNodes)
 	{
-		int tmpW = binWidth;
-		int tmpH = heightForRestItems;
-		std::vector<const item*> computedItems;
-		for (const auto & it : _processedItems)
+		const auto currentNode = std::move(dfsTree.top());
+		dfsTree.pop();
+		// if it's a feasible solution then invoke the y-check algorithm
+		if (currentNode->remainingItems.empty())
 		{
-			const item* tmp = new item(it->idx, it->width, it->height, it->idxHelper);
-			computedItems.push_back(tmp);
+			if (this->yCheckAlgorithm(tmpW, tmpH, currentNode->itemPositions, t_Items))	return solutionStatus::feasible;
+			else continue;							// the node can not be transformed to a feasible solution for the SPP
 		}
-		//if(this->ifRotateInstance(tmpH))
-		//	this->rotateInstance(computedItems, tmpW, tmpH);
-		std::cout << "W = " << tmpW << "H = " << tmpH << std::endl;
-		std::unique_ptr<BBNode>	root(new BBNode(computedItems, tmpW, tmpH));
-		if (this->LowerBound1() == heightForRestItems + _processedH) maxExpNodes = BLEU::BBMaxExplNodesPerPack;
-		else maxExpNodes = BLEU::BBMaxExplNodesNonPerPack;
-		std::stack<std::unique_ptr<BBNode>> dfsTree;
-		dfsTree.push(std::move(root));
-		int numberExploredNodes = 0;
-		while (!dfsTree.empty() && numberExploredNodes < maxExpNodes)
+		else
 		{
-			const auto currentNode = std::move(dfsTree.top());
-			dfsTree.pop();
-			// if it's a feasible solution then invoke the y-check algorithm
-			if (currentNode->remainingItems.empty())
-			{
-				if (this->yCheckAlgorithm(tmpW, tmpH, currentNode->itemPositions, computedItems))
-				{
-					this->releaseTmpItems(computedItems);
-					std::cout << "the best height is " << heightForRestItems + _processedH;
-					return solutionStatus::feasible;
-				}
-				else
-				{
-					continue;							// the node can not be transformed to a feasible solution for the SPP
-				}
-			}
-			else
-			{
-				// bounding the current Node
-				if (this->bounding(currentNode))
-					continue;
-				// make branch
-				numberExploredNodes++;
-				this->makeBranch(currentNode, dfsTree);
-			}
+			// bounding the current Node
+			if (this->bounding(currentNode))
+				continue;
+			// make branch
+			numberExploredNodes++;
+			this->makeBranch(currentNode, dfsTree);
 		}
-		if (numberExploredNodes >= maxExpNodes)
-			std::cout << "exceed the node limit";
-		std::cout << "The dynamic cuts bounded " << BLEU::interestingStatics << " nodes";
-		heightForRestItems++;
-		this->releaseTmpItems(computedItems);
 	}
-
-	
+	if (numberExploredNodes >= maxExpNodes)
+	{
+		std::cout << "\t exceed the node limit";
+		return solutionStatus::pending;
+	}
+	else return solutionStatus::infeasible;
 }
 
 const bool BLEU::dynamicCuts(const std::unique_ptr<BBNode>& t_currentNode) const
@@ -1135,8 +1134,12 @@ const int BLEU::LowerBound5()const
 		mapPosWidth.insert(std::pair<int, std::list<int>>(_processedItems[idx]->idx, possiblePositionsWidth));
 		mapPosHeight.insert(std::pair<int, std::list<int>>(_processedItems[idx]->idx, possiblePositionsHeight));
 	}
-	return solve(_processedItems, mapPosWidth, mapPosHeight,false) + _processedH;
+	auto lb = std::ceil(solve(_processedItems, mapPosWidth, mapPosHeight, false) + _processedH);
+	std::cout << "the lower bound 5 is " <<lb;
+	return lb;
+	
 }
+
 
 
 

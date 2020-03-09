@@ -82,7 +82,8 @@ public:
 	std::vector<coordinate> itemPositions;				// store the final positions of all the items in processedItems (respect the order in processedItems)
 };
 protected:
-	const solutionStatus branchAndBound();
+	const solutionStatus branchAndBound(const std::vector<const item*>& t_Items, const int t_binWidth,
+		const int t_binHeight);
 	void makeBranch(const std::unique_ptr<BBNode>& t_currentNode, 
 		std::stack<std::unique_ptr<BBNode>>& t_dfstree) const;
 	const bool bounding(const std::unique_ptr<BBNode>& t_currentNode) const;

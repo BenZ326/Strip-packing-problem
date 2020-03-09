@@ -28,16 +28,17 @@ std::list<int> computeFX(const int t_x,  const int t_idx,
 	const std::vector<const item*>& t_items, bool flag)
 {
 	std::vector<std::vector<int>> res;
-	for (size_t i = 0; i < t_items.size()-1; ++i)
+	for (size_t i = 0; i < t_items.size(); ++i)
 	{
 		std::vector<int> tmp(t_x+1, 0);
 		res.push_back(tmp);
 	}
-	for (size_t j = 1; j <= t_x; ++j) res[0][j] = BigNumber;
+	for (size_t j = 1; j <= t_x; ++j) res[0][j] = 0;
+	for (size_t i = 0; i < t_items.size(); ++i) res[i][0] = 1;
 	int itemIdx;
-	for (size_t j = 0; j <= t_x; ++j)
+	for (size_t j = 1; j <= t_x; ++j)		// W 
 	{
-		for (size_t i = 1; i < t_items.size()-1; ++i)
+		for (size_t i = 1; i < t_items.size(); ++i)
 		{
 			if (i - 1 < t_idx) itemIdx = i - 1;
 			else itemIdx = i;
@@ -45,20 +46,20 @@ std::list<int> computeFX(const int t_x,  const int t_idx,
 			{
 				int diff = j - t_items[itemIdx]->width;
 				if ((diff) < 0) res[i][j] = res[i - 1][j];
-				else res[i][j] = std::min(res[i - 1][j], std::max(t_items[itemIdx]->height, res[i - 1][j - t_items[itemIdx]->width]));
+				else res[i][j] = std::max(res[i - 1][j], res[i - 1][j - t_items[itemIdx]->width]);
 			}
 			else
 			{
 				int diff = j - t_items[itemIdx]->height;
 				if ((diff) < 0) res[i][j] = res[i - 1][j];
-				else res[i][j] = std::min(res[i - 1][j], std::max(t_items[itemIdx]->width, res[i - 1][j - t_items[itemIdx]->height]));
+				else res[i][j] = std::max(res[i - 1][j], res[i - 1][j - t_items[itemIdx]->height]);
 			}
 		}
 	}
 	std::list<int> possiblePositions;
 	for (size_t j = 0; j <= t_x; ++j)
 	{
-		if (res[res.size() - 1][j] < BigNumber) possiblePositions.push_back(j);
+		if (res[res.size() - 1][j]  == 1) possiblePositions.push_back(j);
 	}
 	return possiblePositions;
 }
