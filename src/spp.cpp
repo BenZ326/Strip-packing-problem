@@ -76,10 +76,10 @@ int getMaximalHeight(const std::vector<const item*>& t_items)
 
 
 /*
-Build the SPP model and solve
+Build the contiguity parallel machine scheduling problem as a lower bound for the spp
 */
 double solve(const std::vector<const item*>& t_allItems, const std::map<int, std::list<int>>& t_mapPosWidth,
-	const std::map<int, std::list<int>>& t_mapPosHeight)
+	const std::map<int, std::list<int>>& t_mapPosHeight, const bool t_Integer)
 {
 	// data preparation
 	std::set<int> allPositions;
@@ -96,9 +96,19 @@ double solve(const std::vector<const item*>& t_allItems, const std::map<int, std
 		for (const auto& it2 : t_mapPosWidth.find(it->idx)->second)
 		{
 			auto varName = getVarName(it->idx, it2);
-			IloNumVar var(env, 0, 1, ILOFLOAT, varName.c_str());
-			allVars.insert(std::pair<std::string, IloNumVar>(varName, var));
-			expr += var;
+			if (t_Integer)
+			{
+				IloNumVar var(env, 0, 1, ILOINT, varName.c_str());
+				allVars.insert(std::pair<std::string, IloNumVar>(varName, var));
+				expr += var;
+			}
+			else
+			{
+				IloNumVar var(env, 0, 1, ILOFLOAT, varName.c_str());
+				allVars.insert(std::pair<std::string, IloNumVar>(varName, var));
+				expr += var;
+			}
+
 		}
 		model.add(expr == 1);
 		expr.end();
@@ -130,6 +140,10 @@ double solve(const std::vector<const item*>& t_allItems, const std::map<int, std
 	cplex.setOut(env.getNullStream());
 	cplex.setWarning(env.getNullStream());
 	//cplex.exportModel("spp.lp");
+	cplex.setParam(IloCplex::Param::Preprocessing::RepeatPresolve, 3);
+	cplex.setParam(IloCplex::Param::Preprocessing::Reduce, 3);
+	cplex.setParam(IloCplex::Param::MIP::Strategy::Probe, 3);
+	cplex.setParam(IloCplex::Param::Preprocessing::Symmetry, 5);
 	cplex.solve();
 	double result = cplex.getObjValue();
 	env.end();

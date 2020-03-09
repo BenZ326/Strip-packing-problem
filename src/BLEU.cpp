@@ -50,7 +50,23 @@ void BLEU::reassignItemsIdx()
 void BLEU::takeOff()
 {
 	auto start = std::chrono::high_resolution_clock::now();
-	std::cout<<"result of the b&b "<<this->branchAndBound()<<std::endl;
+	//std::cout<<"result of the b&b "<<this->branchAndBound()<<std::endl;
+	std::vector<const item*> Items;
+	int binWidth = _processedW;
+	int binHeight = _bestLowerBound;
+	for (const auto& it : _processedItems)
+	{
+		const item* tmp = new item(it->idx, it->width, it->height, it->idxHelper);
+		Items.push_back(tmp);
+	}
+	auto rotate = this->ifRotateInstance(_bestLowerBound);
+	if (rotate)
+	{
+		std::cout << "rotate ";
+		this->rotateInstance(Items, binWidth, binHeight);
+	}
+	//std::cout << "result of the b&b " << this->branchAndBound() << std::endl;
+	std::cout << "result of the b&b " << this->combinatorialBenders(Items, binWidth, binHeight) << std::endl;
 	std::cout << "\t the b&b took as long as " <<
 		(std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now() - start)).count() / 1000000.0;
 	std::cout << std::endl;
@@ -641,10 +657,99 @@ const bool BLEU::dynamicCuts(const std::unique_ptr<BBNode>& t_currentNode) const
 
 //The branch and bound algorithm -----------------------------------------------------------------------------end
 
-const solutionStatus BLEU::combianotrialBenders() const
+
+/*
+extract info from t_cplex to do y check
+*/
+void BLEU::extractInfo4Ycheck(const IloCplex& t_cplex, const std::map<std::string, IloNumVar>& t_allVars) const
 {
 
-	return solutionStatus::pending;
+}
+
+
+/*
+Given the width and height and the items, go to solve the problem
+*/
+// The combinatorialBenders algorithm
+const solutionStatus BLEU::combinatorialBenders(const std::vector<const item*>& t_Items, const int t_binWidth,
+	const int t_binHeight)
+{
+	
+	int maxHeight = t_binHeight;
+	std::map<int, std::list<int>> mapPosWidth, mapPosHeight;
+	for (size_t idx = 0; idx < t_Items.size(); ++idx)
+	{
+		auto possiblePositionsWidth = computeFX(t_binWidth - t_Items[idx]->width, idx,
+			t_Items, true);
+		auto possiblePositionsHeight = computeFX(maxHeight - t_Items[idx]->height, idx,
+			t_Items, false);
+		mapPosWidth.insert(std::pair<int, std::list<int>>(t_Items[idx]->idx, possiblePositionsWidth));
+		mapPosHeight.insert(std::pair<int, std::list<int>>(t_Items[idx]->idx, possiblePositionsHeight));
+	}
+	// data preparation
+	std::set<int> allPositions;
+	for (const auto& it : mapPosWidth)
+		for (const auto& it2 : it.second)
+			allPositions.insert(it2);
+	IloEnv env;
+	IloModel model(env);
+	std::map<std::string, IloNumVar> allVars;
+	// first constraints set
+	for (const auto& it : t_Items)
+	{
+		IloExpr expr(env);
+		for (const auto& it2 : mapPosWidth.find(it->idx)->second)
+		{
+			auto varName = getVarName(it->idx, it2);
+			IloNumVar var(env, 0, 1, ILOINT, varName.c_str());
+			allVars.insert(std::pair<std::string, IloNumVar>(varName, var));
+			expr += var;
+		}
+		model.add(expr == 1);
+		expr.end();
+	}
+	// second constraints set
+	IloNumVar z(env, 0, IloInfinity, "ObjZ");
+	for (const auto q : allPositions)
+	{
+		IloExpr expr(env);
+		for (const auto it : t_Items)
+		{
+			// calculate W(j, q)
+			for (const auto& it2 : mapPosWidth.find(it->idx)->second)
+			{
+				if (it2 <= q && it2 >= q - it->width + 1)
+				{
+					auto iter = allVars.find(getVarName(it->idx, it2));
+					assert(iter != allVars.end());
+					expr += iter->second*it->height;
+				}
+			}
+		}
+		model.add(expr <= z);
+		expr.end();
+	}
+	model.add(IloMinimize(env, z));
+	IloCplex cplex(env);
+	cplex.extract(model);
+	cplex.setOut(env.getNullStream());
+	cplex.setWarning(env.getNullStream());
+	//cplex.exportModel("spp.lp");
+	cplex.setParam(IloCplex::Param::Preprocessing::RepeatPresolve, 3);
+	cplex.setParam(IloCplex::Param::Preprocessing::Reduce, 3);
+	cplex.setParam(IloCplex::Param::MIP::Strategy::Probe, 3);
+	cplex.setParam(IloCplex::Param::Preprocessing::Symmetry, 5);
+	cplex.solve();
+	// do y check 
+	
+
+	double obj = cplex.getObjValue(); 
+	env.end();
+	if (obj <= t_binHeight)
+	{
+		return solutionStatus::feasible;
+	}
+	else return solutionStatus::infeasible;
 }
 
 
@@ -761,10 +866,10 @@ void BLEU::bounds()
 	int lb1 = this->LowerBound1();
 	int lb2 = this->LowerBound2();
 	int lb4 = this->LowerBound4();
-	int lb5 = this->LowerBound5();
-	_bestLowerBound = std::max(lb1, lb2);
+	_bestLowerBound = std::max({ lb1, lb2, lb4 });
 	int lb3 = this->LowerBound3();
-	_bestLowerBound = std::max({ _bestLowerBound, lb3, lb4, lb5 });
+	int lb5 = this->LowerBound5();
+	_bestLowerBound = std::max({ _bestLowerBound, lb3, lb5 });
 	std::cout << "Lower bound is " << _bestLowerBound<< std::endl;
 }
 
@@ -1019,7 +1124,7 @@ solve the root node of the parallel machine scheduling with contiguous constrain
 */
 const int BLEU::LowerBound5()const
 {
-	int maxHeight = getMaximalHeight(_processedItems);
+	int maxHeight = _bestLowerBound - _processedH;
 	std::map<int, std::list<int>> mapPosWidth, mapPosHeight;
 	for (size_t idx = 0; idx < _processedItems.size(); ++idx)
 	{
@@ -1030,7 +1135,7 @@ const int BLEU::LowerBound5()const
 		mapPosWidth.insert(std::pair<int, std::list<int>>(_processedItems[idx]->idx, possiblePositionsWidth));
 		mapPosHeight.insert(std::pair<int, std::list<int>>(_processedItems[idx]->idx, possiblePositionsHeight));
 	}
-	return solve(_processedItems, mapPosWidth, mapPosHeight) + _processedH;
+	return solve(_processedItems, mapPosWidth, mapPosHeight,false) + _processedH;
 }
 
 

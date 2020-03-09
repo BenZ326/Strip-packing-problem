@@ -117,7 +117,7 @@ int getMaximalHeight(const std::vector<const item*>& t_items);
 Instance of the SPP
 */
 double solve(const std::vector<const item*>& t_allItems, const std::map<int, std::list<int>>& t_mapPosWidth,
-	const std::map<int, std::list<int>>& t_mapPosHeight);
+	const std::map<int, std::list<int>>& t_mapPosHeight, const bool t_Integer);
 
 
 inline const std::string getVarName(const int t_itemIdx, const int t_xPos);

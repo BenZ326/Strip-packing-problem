@@ -26,7 +26,8 @@ public:
 	
 // algorithms
 protected:
-	const solutionStatus combianotrialBenders() const;
+	const solutionStatus combinatorialBenders(const std::vector<const item*>& t_Items, const int t_binWidth,
+		const int t_binHeight);
 	//preprocessing and bounds	
 protected:
 	// 5.1 preprocessing
@@ -158,6 +159,15 @@ const bool checkSeparable(const std::list<item*>& t_Items, const std::vector<coo
 the y-check algorithm---------------------------------------------------end
 */
 
+
+
+/*
+Combinatorial Benders---------------------------------------------------start
+*/
+void extractInfo4Ycheck(const IloCplex& t_cplex, const std::map<std::string, IloNumVar>& t_allVars) const;
+/*
+Combinatorial Benders---------------------------------------------------end
+*/
 
 private:
 	std::vector<const item*> _allItems;
