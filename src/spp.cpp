@@ -24,7 +24,7 @@ idxHelper(t_idxHelper)
 	subItems.clear();
 }
 
-std::list<int> computeFX(const int t_x,  const int t_idx,
+std::set<int> computeFX(const int t_x,  const int t_idx,
 	const std::vector<const item*>& t_items, bool flag)
 {
 	std::vector<std::vector<int>> res;
@@ -56,10 +56,10 @@ std::list<int> computeFX(const int t_x,  const int t_idx,
 			}
 		}
 	}
-	std::list<int> possiblePositions;
+	std::set<int> possiblePositions;
 	for (size_t j = 0; j <= t_x; ++j)
 	{
-		if (res[res.size() - 1][j]  == 1) possiblePositions.push_back(j);
+		if (res[res.size() - 1][j]  == 1) possiblePositions.insert(j);
 	}
 	return possiblePositions;
 }
@@ -79,8 +79,8 @@ int getMaximalHeight(const std::vector<const item*>& t_items)
 /*
 Build the contiguity parallel machine scheduling problem as a lower bound for the spp
 */
-double solve(const std::vector<const item*>& t_allItems, const std::map<int, std::list<int>>& t_mapPosWidth,
-	const std::map<int, std::list<int>>& t_mapPosHeight, const bool t_Integer)
+double solve(const std::vector<const item*>& t_allItems, const std::map<int, std::set<int>>& t_mapPosWidth,
+	const std::map<int, std::set<int>>& t_mapPosHeight, const bool t_Integer)
 {
 	// data preparation
 	std::set<int> allPositions;
@@ -140,12 +140,14 @@ double solve(const std::vector<const item*>& t_allItems, const std::map<int, std
 	cplex.extract(model);
 	cplex.setOut(env.getNullStream());
 	cplex.setWarning(env.getNullStream());
-	//cplex.exportModel("spp.lp");
+	//cplex.exportModel("lowerBound5.lp");
+	
 	cplex.setParam(IloCplex::Param::Preprocessing::RepeatPresolve, 3);
 	cplex.setParam(IloCplex::Param::Preprocessing::Reduce, 3);
 	cplex.setParam(IloCplex::Param::MIP::Strategy::Probe, 3);
 	cplex.setParam(IloCplex::Param::Preprocessing::Symmetry, 5);
 	cplex.solve();
+	std::cout << "the status of the solver is " << cplex.getStatus();
 	double result = cplex.getObjValue();
 	env.end();
 	return result;

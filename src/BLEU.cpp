@@ -50,7 +50,8 @@ void BLEU::reassignItemsIdx()
 void BLEU::takeOff()
 {
 	//std::cout<<"result of the b&b "<<this->branchAndBound()<<std::endl;
-	double elapsedTime = 0.0;
+	double elapsedTimeBB = 0.0;
+	double elapsedTimeBD = 0.0;
 	int increment = 0;
 	while (true)
 	{
@@ -62,34 +63,41 @@ void BLEU::takeOff()
 			const item* tmp = new item(it->idx, it->width, it->height, it->idxHelper);
 			Items.push_back(tmp);
 		}
-		/*
 		auto rotate = this->ifRotateInstance(binHeight);
 		if (rotate)
 		{
 			std::cout << "rotate \n";
 			this->rotateInstance(Items, binWidth, binHeight);
-		}*/
+		}
 		auto start = std::chrono::high_resolution_clock::now();
-		std::cout << "W = " << binWidth << "H = "<<binHeight<<"\n";
-		//solutionStatus status = this->combinatorialBenders(Items, binWidth, binHeight);
-		auto status = this->branchAndBound(Items, binWidth, binHeight);
-		//std::cout << "\nresult of the b&b "<< status << std::endl;
-		elapsedTime += (std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now() - start)).count() / 1000000.0;
+		//auto bbStatus = this->branchAndBound(Items, binWidth, binHeight);
+		//elapsedTimeBB += (std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now() - start)).count() / 1000000.0;
+		//std::cout << "\nresult of the b&b " << bbStatus << std::endl;
+		//if (bbStatus == solutionStatus::feasible)
+		//{
+		//	std::cout << "The solution is " << _bestLowerBound + increment << std::endl;
+		//	std::cout << "\t the algorithm took as long as " << elapsedTimeBB << std::endl;
+		//	this->releaseTmpItems(Items);
+		//	break;
+		//}
+		start = std::chrono::high_resolution_clock::now();
+		solutionStatus status = this->combinatorialBenders(Items, binWidth, binHeight, increment);
+		elapsedTimeBD += (std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now() - start)).count() / 1000000.0;
 		//std::cout << "result of the combinatorial benders is  " << status << "the height is "<<binHeight + _processedH<<std::endl;
 		if (status == solutionStatus::feasible)
 		{
+			std::cout << "The solution is " << _bestLowerBound + increment << std::endl;
+			std::cout << "\t the algorithm took as long as " << elapsedTimeBD << std::endl;
 			this->releaseTmpItems(Items);
 			break;
 		}	
 		else
 		{
-			increment++;
 			this->releaseTmpItems(Items);
 		}
 	}
 	
-	std::cout << "The solution is " << _bestLowerBound + increment <<std::endl;
-	std::cout << "\t the algorithm took as long as " << elapsedTime<< std::endl;
+
 }
 
 
@@ -106,13 +114,14 @@ t_processedItems: all the items to be packed in the strip
 Return: if it is a feasible solution for the SPP then return true, else false
 */
 bool BLEU::yCheckAlgorithm(const int t_processedW, const int t_TrialHeight, const std::vector<coordinate>& itemPositions,
-	const std::vector<const item*> t_processedItems) 
+	const std::vector<const item*> t_processedItems) const
 
 {
-	std::vector<coordinate> Cords4yCheck = itemPositions;
-	auto Items = this->preprocess4yCheck(t_processedItems, Cords4yCheck, t_TrialHeight, t_processedW);
-	bool result = (this->yCheckEnumerationTree(Items, Cords4yCheck, t_TrialHeight, t_processedW) == solutionStatus::feasible);
-	this->releaseTmpItems(Items);
+	//std::vector<coordinate> Cords4yCheck = itemPositions;
+	//auto Items = this->preprocess4yCheck(t_processedItems, Cords4yCheck, t_TrialHeight, t_processedW);
+	//bool result = (this->yCheckEnumerationTree(Items, Cords4yCheck, t_TrialHeight, t_processedW) == solutionStatus::feasible);
+	//this->releaseTmpItems(Items);
+	bool result = (this->yCheckEnumerationTree(t_processedItems, itemPositions, t_TrialHeight, t_processedW) == solutionStatus::feasible);
 	return result;
 }
 
@@ -126,6 +135,7 @@ t_Width: the width of a bin to pack items in t_InterestItems
 solutionStatus BLEU::yCheckEnumerationTree(const std::vector<const item*>& t_InterestItems, const std::vector<coordinate>& t_Cords,
 	const int t_Height, const int t_Width) const
 {
+	if (t_Width == 0) return solutionStatus::infeasible;			// it could happen when the very item ends at the current last column, then there will be no space for any merge
 	std::unique_ptr<BBNode> root(new BBNode(t_InterestItems, t_Cords, t_Width, t_Height));
 	std::stack<std::unique_ptr<BBNode>> yEnTree;
 	yEnTree.push(std::move(root));
@@ -459,8 +469,10 @@ const solutionStatus BLEU::branchAndBound(const std::vector<const item*>& t_Item
 	std::unique_ptr<BBNode>	root(new BBNode(t_Items, tmpW, tmpH));
 	double totalArea = 0.0;
 	for (const auto& it : t_Items) totalArea += it->width*it->height;
-	if (tmpH == (totalArea/tmpW)) maxExpNodes = BLEU::BBMaxExplNodesPerPack;
+	if (abs(tmpH-(totalArea / tmpW)) <BLEU::tolerance) maxExpNodes = BLEU::BBMaxExplNodesPerPack;
 	else maxExpNodes = BLEU::BBMaxExplNodesNonPerPack;
+	std::cout << "totalArea/tmpW = " << totalArea / tmpW << " height is " << tmpH << std::endl;
+	std::cout << "maximal explored nodes " << maxExpNodes<<std::endl;
 	std::stack<std::unique_ptr<BBNode>> dfsTree;
 	dfsTree.push(std::move(root));
 	int numberExploredNodes = 0;
@@ -471,6 +483,7 @@ const solutionStatus BLEU::branchAndBound(const std::vector<const item*>& t_Item
 		// if it's a feasible solution then invoke the y-check algorithm
 		if (currentNode->remainingItems.empty())
 		{
+			std::cout << "start to do y-check in b&b ....." << std::endl;
 			if (this->yCheckAlgorithm(tmpW, tmpH, currentNode->itemPositions, t_Items))	return solutionStatus::feasible;
 			else continue;							// the node can not be transformed to a feasible solution for the SPP
 		}
@@ -659,10 +672,27 @@ const bool BLEU::dynamicCuts(const std::unique_ptr<BBNode>& t_currentNode) const
 
 /*
 extract info from t_cplex to do y check
+Args:
+	1) t_allItems: the items considered in the algorithm
+	2) t_cplex: the cplex model 
+	3) t_allVars: a map of variables, key is the idx of items and value is the corresponding variable in the model
 */
-void BLEU::extractInfo4Ycheck(const IloCplex& t_cplex, const std::map<std::string, IloNumVar>& t_allVars) const
+std::vector<coordinate> BLEU::extractInfo4Ycheck(const std::vector<const item*>& t_allItems, 
+	const IloCplex& t_cplex, const IloArray<IloNumVarArray>& t_variables) const
 {
-
+	std::vector<coordinate> result(t_allItems.size(), coordinate(0, 0));
+	for (int i = 0; i < t_variables.getSize(); ++i)
+	{
+		for (int j = 0; j < t_variables[i].getSize(); ++j)
+		{
+			double varValue = t_cplex.getValue(t_variables[i][j]);
+			if (varValue >=1.0 - BLEU::tolerance)
+			{
+				result[t_allItems[i]->idxHelper].x = j;
+			}
+		}
+	}
+	return result;
 }
 
 
@@ -671,19 +701,20 @@ Given the width and height and the items, go to solve the problem
 */
 // The combinatorialBenders algorithm
 const solutionStatus BLEU::combinatorialBenders(const std::vector<const item*>& t_Items, const int t_binWidth,
-	const int t_binHeight)
+	const int t_binHeight, int & t_increment)
 {
-	
+	std::map<int, const item*> allItemsMap;
 	int maxHeight = t_binHeight;
-	std::map<int, std::list<int>> mapPosWidth, mapPosHeight;
+	std::map<int, std::set<int>> mapPosWidth, mapPosHeight;
 	for (size_t idx = 0; idx < t_Items.size(); ++idx)
 	{
+		allItemsMap.insert(std::pair<int, const item*>(t_Items[idx]->idx, t_Items[idx]));
 		auto possiblePositionsWidth = computeFX(t_binWidth - t_Items[idx]->width, idx,
 			t_Items, true);
 		auto possiblePositionsHeight = computeFX(maxHeight - t_Items[idx]->height, idx,
 			t_Items, false);
-		mapPosWidth.insert(std::pair<int, std::list<int>>(t_Items[idx]->idx, possiblePositionsWidth));
-		mapPosHeight.insert(std::pair<int, std::list<int>>(t_Items[idx]->idx, possiblePositionsHeight));
+		mapPosWidth.insert(std::pair<int, std::set<int>>(t_Items[idx]->idx, possiblePositionsWidth));
+		mapPosHeight.insert(std::pair<int, std::set<int>>(t_Items[idx]->idx, possiblePositionsHeight));
 	}
 	// data preparation
 	std::set<int> allPositions;
@@ -692,36 +723,40 @@ const solutionStatus BLEU::combinatorialBenders(const std::vector<const item*>& 
 			allPositions.insert(it2);
 	IloEnv env;
 	IloModel model(env);
-	std::map<std::string, IloNumVar> allVars;
-	// first constraints set
-	for (const auto& it : t_Items)
+	IloNumVar z(env, 0, IloInfinity, "ObjZ");
+	IloArray<IloNumVarArray> variables(env, t_Items.size());// i is the index in the t_Items, and j is the position
+	for (int i = 0; i < variables.getSize(); ++i)
 	{
+		variables[i] = IloNumVarArray(env, t_binWidth + 1, 0,1, ILOINT);
+		const item* tmp = t_Items[i];
 		IloExpr expr(env);
-		for (const auto& it2 : mapPosWidth.find(it->idx)->second)
+		auto widthPos = mapPosWidth.find(tmp->idx)->second;
+		for (int j = 0; j < variables[i].getSize(); ++j)
 		{
-			auto varName = getVarName(it->idx, it2);
-			IloNumVar var(env, 0, 1, ILOINT, varName.c_str());
-			allVars.insert(std::pair<std::string, IloNumVar>(varName, var));
-			expr += var;
+			variables[i][j].setName(getVarName(tmp->idx, j).c_str());
+			expr += variables[i][j];
+			if (widthPos.find(j) == widthPos.end())
+			{
+				model.add(variables[i][j] == 0);
+			}
 		}
 		model.add(expr == 1);
 		expr.end();
 	}
 	// second constraints set
-	IloNumVar z(env, 0, IloInfinity, "ObjZ");
+	
 	for (const auto q : allPositions)
 	{
 		IloExpr expr(env);
-		for (const auto it : t_Items)
+		for (int i = 0; i < variables.getSize(); ++i)
 		{
+			const item* tmp = t_Items[i];
 			// calculate W(j, q)
-			for (const auto& it2 : mapPosWidth.find(it->idx)->second)
+			for (int j =0; j<variables[i].getSize();++j)
 			{
-				if (it2 <= q && it2 >= q - it->width + 1)
+				if (j <= q && j >= q -tmp->width  + 1)
 				{
-					auto iter = allVars.find(getVarName(it->idx, it2));
-					assert(iter != allVars.end());
-					expr += iter->second*it->height;
+					expr += tmp->height*variables[i][j];
 				}
 			}
 		}
@@ -738,24 +773,203 @@ const solutionStatus BLEU::combinatorialBenders(const std::vector<const item*>& 
 	cplex.setParam(IloCplex::Param::Preprocessing::Reduce, 3);
 	cplex.setParam(IloCplex::Param::MIP::Strategy::Probe, 3);
 	cplex.setParam(IloCplex::Param::Preprocessing::Symmetry, 5);
-	cplex.solve();
-	// do y check 
-	
-
-	double obj = cplex.getObjValue(); 
-	env.end();
-	if (obj <= t_binHeight)
+	std::cout << "the bin height is " << t_binHeight << std::endl;
+	while (true)
 	{
-		return solutionStatus::feasible;
+	   // cplex.exportModel("spp.lp");
+		cplex.solve();
+		if (cplex.getStatus() == IloAlgorithm::Status::Infeasible)
+		{
+
+			env.end();
+			t_increment += 1;
+			return solutionStatus::infeasible;
+		}	
+		double obj = cplex.getObjValue();
+		if (obj <= t_binHeight)
+		{
+			// do y check 
+			std::vector<coordinate> coordinates = this->extractInfo4Ycheck(t_Items, cplex, variables);
+			if (this->yCheckAlgorithm(t_binWidth, t_binHeight, coordinates, t_Items))
+			{
+				env.end();
+				return solutionStatus::feasible;
+			}
+			else
+			{ 
+				std::cout << "\n y check fails"<<std::endl;
+				//// add a combinatorial cut
+				const std::vector<std::vector<int>> subsetItems = this->findSubset(t_binHeight, t_binWidth, t_Items, coordinates);
+				for (size_t i = 0; i < subsetItems.size(); ++i)
+				{
+					std::cout << "\n adding combinatorial benders cuts......." << std::endl;
+					std::vector<IloNumVar> selectedVars;
+					for (const auto& it : subsetItems[i])
+					{
+						const item* tmp = allItemsMap.find(it)->second;
+						selectedVars.push_back(variables[tmp->idxHelper][coordinates[tmp->idxHelper].x]);
+						/*std::cout << "variable " << variables[tmp->idxHelper][coordinates[tmp->idxHelper].x].getName() << " = "
+							<< cplex.getValue(variables[tmp->idxHelper][coordinates[tmp->idxHelper].x]) << std::endl;*/
+					}
+					this->addBendersCut(cplex, t_Items, variables, selectedVars);
+				}
+				//env.end();
+				//t_increment += 1;
+				//return solutionStatus::infeasible;
+			}
+		}
+		else
+		{
+			std::cout << "obj is ..."<<obj;
+			env.end();
+			t_increment += (obj - t_binHeight > 1) ? (obj - t_binHeight) : 1;
+			return solutionStatus::infeasible;
+		}
 	}
-	else return solutionStatus::infeasible;
 }
 
 
+void BLEU::addBendersCut(IloCplex& t_cplex, const std::vector<const item*>& t_allItems,
+	const IloArray<IloNumVarArray>& t_variables, const std::vector<IloNumVar>& t_selectedVars) const
+{
+	IloExpr bendersCut(t_cplex.getModel().getEnv());
+	for (const auto& it : t_selectedVars)
+	{
+		bendersCut += it;
+	}
+	t_cplex.getModel().add(bendersCut <= int(t_selectedVars.size()) - 1);
+	bendersCut.end();
+}
+
+/*
+This is the center of the combinatorial cuts, it find a subset of variables to strenthen the benders cut
+The description of the method can be found at section 4.
+*/
+const std::vector<std::vector<int>> BLEU::findSubset(const int t_binHeight, const int t_binWidth,const std::vector<const item*>& t_allItems,
+	const std::vector<coordinate>& t_Cords) const
+{
+	std::vector<std::vector<int>> result;
+	std::vector<int> wholeSet;
+	for (const auto& it : t_allItems) wholeSet.push_back(it->idx);
+	// vertical cuts
+	auto VCSubsets = this->verticalCuts(t_binHeight, t_binWidth, t_allItems, t_Cords);
+	if (!VCSubsets.empty()) return VCSubsets;
+	result.push_back(wholeSet);
+	return result;
+}
+
+const std::vector<std::vector<int>> BLEU::verticalCuts(const int t_binHeight, const int t_binWidth, 
+	const std::vector<const item*>& t_allItems, const std::vector<coordinate>& t_Cords) const
+{
+	std::cout << "\n entering verticalCuts" << std::endl;
+	std::stack<std::vector<int>> startEndColumns;
+	std::vector<int> initialInterval(2, -1);
+	initialInterval[0] = 0;
+	initialInterval[1] = t_binWidth - 1;
+	startEndColumns.push(initialInterval);
+	std::vector<std::vector<int>> allSubsets;
+	while (!startEndColumns.empty())
+	{
+		auto currentInterval = startEndColumns.top();
+		startEndColumns.pop();
+		auto nextIntervals = this->findSubsetItems4VerticalCut(t_binHeight, currentInterval[0],
+			currentInterval[1], t_allItems, t_Cords, allSubsets);
+		if (!nextIntervals.empty())
+			for (const auto& it : nextIntervals) startEndColumns.push(it);
+	}
+	std::cout << "\n exiting verticalCuts" << std::endl;
+	return allSubsets;
+}
+
+const std::vector<std::vector<int>> BLEU::findSubsetItems4VerticalCut(const int t_binHeight, const int t_startColumn, const int t_endColumn,
+	const std::vector<const item*>& t_allItems, const std::vector<coordinate>& t_Cords,
+	std::vector<std::vector<int>>& t_subsetItems) const
+{
+	std::vector<std::vector<int>> result;
+	for (int i = t_startColumn; i < t_endColumn; ++i)
+	{
+		if (!this->ifCrossOverColumn(i, t_allItems, t_Cords))
+		{
+			// split the columns
+			// the left subset:
+			std::vector<coordinate> leftCords;
+			auto leftColumnsItems = this->getItemsPackedColumn(t_allItems, t_Cords, t_startColumn, i, leftCords);
+			bool leftfeasibility = this->yCheckAlgorithm(i - t_startColumn + 1, t_binHeight, leftCords, leftColumnsItems);
+			if (!leftfeasibility)
+			{
+				std::vector<int> leftSubset(2, -1);
+				leftSubset[0] = t_startColumn;
+				leftSubset[1] = i;
+				result.push_back(leftSubset);
+				std::vector<int> subsetItems;
+				for (const auto& it : leftColumnsItems) subsetItems.push_back(it->idx);
+				t_subsetItems.push_back(subsetItems);
+			}
+			// right subset:
+			std::vector<coordinate> rightCords;
+			auto rightColumnsItems = this->getItemsPackedColumn(t_allItems, t_Cords, i + 1, t_endColumn, rightCords);
+			bool rightfeasibility = this->yCheckAlgorithm(t_endColumn - i, t_binHeight, rightCords, rightColumnsItems);
+			if (!rightfeasibility)
+			{
+				std::vector<int> rightSubset(2, -1);
+				rightSubset[0] = i + 1;
+				rightSubset[1] = t_endColumn;
+				result.push_back(rightSubset);
+				std::vector<int> subsetItems;
+				for (const auto& it : rightColumnsItems) subsetItems.push_back(it->idx);
+				t_subsetItems.push_back(subsetItems);
+			}
+			this->releaseTmpItems(leftColumnsItems);
+			this->releaseTmpItems(rightColumnsItems);
+			return result;
+		}
+	}
+	return result;
+}
+
+/*
+given a column, return if there exists an item ``cross over'' it
+*/
+const bool BLEU::ifCrossOverColumn(const int t_Column,const std::vector<const item*>& t_allItems, const std::vector<coordinate>& t_Cords) const
+{
+	for (size_t i = 0; i < t_allItems.size(); ++i)
+	{
+		const item* tmp = t_allItems[i];
+		if (t_Cords[tmp->idxHelper].x < t_Column && t_Cords[tmp->idxHelper].x + tmp->width > t_Column)
+			return true;
+	}
+	return false;
+}
+
+/*
+given a set of columns, return all the items packed on the columns(must end before the left-most column)
+the function has to be invoked when you are sure that the given columns contain complete items rather than partial items 
+(which means some items are partially packed in the column)
+create new items!!
+*/
+const std::vector<const item*> BLEU::getItemsPackedColumn(
+	const std::vector<const item*>& t_allItems, const std::vector<coordinate>& t_Cords, 
+	const int t_startColumn, const int t_endColumn, std::vector<coordinate>& t_Cords4ycheck) const
+{
+	std::vector<const item*> result;
+	int idxHelper = 0;
+	for (const auto& it : t_allItems)
+	{
+		if (t_Cords[it->idxHelper].x >= t_startColumn && t_Cords[it->idxHelper].x <= t_endColumn)
+		{
+			const item* tmp = new item(it->idx, it->width, it->height, idxHelper++);
+			t_Cords4ycheck.push_back(t_Cords[it->idxHelper]);
+			result.push_back(tmp);
+		}
+	}
+	return result;
+}
 
 
+/*
 
-
+given a set of items, t_cp
+*/
 
 
 
@@ -1124,17 +1338,19 @@ solve the root node of the parallel machine scheduling with contiguous constrain
 const int BLEU::LowerBound5()const
 {
 	int maxHeight = _bestLowerBound - _processedH;
-	std::map<int, std::list<int>> mapPosWidth, mapPosHeight;
+	std::map<int, std::set<int>> mapPosWidth, mapPosHeight;
 	for (size_t idx = 0; idx < _processedItems.size(); ++idx)
 	{
 		auto possiblePositionsWidth = computeFX(_processedW - _processedItems[idx]->width, idx,
 			_processedItems, true);
 		auto possiblePositionsHeight = computeFX(maxHeight - _processedItems[idx]->height, idx,
 			_processedItems, false);
-		mapPosWidth.insert(std::pair<int, std::list<int>>(_processedItems[idx]->idx, possiblePositionsWidth));
-		mapPosHeight.insert(std::pair<int, std::list<int>>(_processedItems[idx]->idx, possiblePositionsHeight));
+		mapPosWidth.insert(std::pair<int, std::set<int>>(_processedItems[idx]->idx, possiblePositionsWidth));
+		mapPosHeight.insert(std::pair<int, std::set<int>>(_processedItems[idx]->idx, possiblePositionsHeight));
 	}
-	auto lb = std::ceil(solve(_processedItems, mapPosWidth, mapPosHeight, false) + _processedH);
+	auto lb = solve(_processedItems, mapPosWidth, mapPosHeight, false) + _processedH;
+	if (std::floor(lb) - lb < BLEU::tolerance) lb = std::floor(lb);
+	else lb = std::ceil(lb);
 	std::cout << "the lower bound 5 is " <<lb;
 	return lb;
 	

@@ -27,7 +27,7 @@ public:
 // algorithms
 protected:
 	const solutionStatus combinatorialBenders(const std::vector<const item*>& t_Items, const int t_binWidth,
-		const int t_binHeight);
+		const int t_binHeight, int& t_increment);
 	//preprocessing and bounds	
 protected:
 	// 5.1 preprocessing
@@ -98,7 +98,7 @@ The branch and bound algorithms----------------------------------------end
 the y-check algorithm---------------------------------------------------start
 */
 bool yCheckAlgorithm(const int t_processedW, const int t_TrialHeight, const std::vector<coordinate>& itemPositions,
-	const std::vector<const item*> t_processedItems);
+	const std::vector<const item*> t_processedItems) const;
 
 /*
 The enumerate tree described right before section 4
@@ -165,8 +165,41 @@ the y-check algorithm---------------------------------------------------end
 /*
 Combinatorial Benders---------------------------------------------------start
 */
-void extractInfo4Ycheck(const IloCplex& t_cplex, const std::map<std::string, IloNumVar>& t_allVars) const;
+std::vector<coordinate>  extractInfo4Ycheck(const std::vector<const item*>& t_allItems, 
+	const IloCplex& t_cplex, const IloArray<IloNumVarArray>& t_variables) const;
+
+void addBendersCut(IloCplex& t_cplex, const std::vector<const item*>& t_allItems,
+	const IloArray<IloNumVarArray>& t_variables, const std::vector<IloNumVar>& t_selectedVars) const;
+
+const std::vector<std::vector<int>> findSubset(const int t_binHeight, const int t_binWidth,
+	const std::vector<const item*>& t_allItems, const std::vector<coordinate>& t_Cords) const;
+
 /*
+Return:
+	A vector of endColumns of each subset (suppose we have W = 15)
+	e.g. [5,9] represents three subsets of columns [0,1,2,3,4,5] [6,7,8,9], [10,11,12,13,14]. 
+*/
+const std::vector<std::vector<int>> verticalCuts(const int t_binHeight, const int t_binWidth, const std::vector<const item*>& t_allItems, 
+	const std::vector<coordinate>& t_Cords) const;
+
+/*
+find a vertical cut given a set of columns to split it into two subsets
+Args:
+	t_startColumn: the start column of the given columns
+	t_endColumn: the end column of the given columns
+	t_subsetVars: the subset of variables (according to the subset of columns)
+Return:
+	the start columns and end columns of the infeasible subset of columns (only store the infeasible columns)
+*/
+ const std::vector<std::vector<int>>findSubsetItems4VerticalCut(const int t_binHeight, const int t_startColumn, const int t_endColumn,
+	const std::vector<const item*>& t_allItems, const std::vector<coordinate>& t_Cords, 
+	 std::vector<std::vector<int>>& t_subsetItems) const;
+
+ const bool ifCrossOverColumn(const int t_Column, const std::vector<const item*>& t_allItems, const std::vector<coordinate>& t_Cords) const;
+ const std::vector<const item*> getItemsPackedColumn(const std::vector<const item*>& t_allItems, 
+	 const std::vector<coordinate>& t_Cords,
+	 const int t_startColumn, const int t_endColumn, std::vector<coordinate>& t_Cords4ycheck) const;
+ /*
 Combinatorial Benders---------------------------------------------------end
 */
 
