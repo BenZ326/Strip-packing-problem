@@ -9,7 +9,7 @@
 
 double BLEU::tolerance = 0.0001;
 int BLEU::bigNumber = 999999;
-int BLEU::BBMaxExplNodesPerPack = 10000000;
+int BLEU::BBMaxExplNodesPerPack = 500000;
 int BLEU::BBMaxExplNodesNonPerPack = 50000;
 int BLEU::interestingStatics = 0;
 
@@ -70,16 +70,16 @@ void BLEU::takeOff()
 			this->rotateInstance(Items, binWidth, binHeight);
 		}
 		auto start = std::chrono::high_resolution_clock::now();
-		//auto bbStatus = this->branchAndBound(Items, binWidth, binHeight);
-		//elapsedTimeBB += (std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now() - start)).count() / 1000000.0;
-		//std::cout << "\nresult of the b&b " << bbStatus << std::endl;
-		//if (bbStatus == solutionStatus::feasible)
-		//{
-		//	std::cout << "The solution is " << _bestLowerBound + increment << std::endl;
-		//	std::cout << "\t the algorithm took as long as " << elapsedTimeBB << std::endl;
-		//	this->releaseTmpItems(Items);
-		//	break;
-		//}
+		auto bbStatus = this->branchAndBound(Items, binWidth, binHeight);
+		elapsedTimeBB += (std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now() - start)).count() / 1000000.0;
+		std::cout << "\nresult of the b&b " << bbStatus << std::endl;
+		if (bbStatus == solutionStatus::feasible)
+		{
+			std::cout << "The solution is " << _bestLowerBound + increment << std::endl;
+			std::cout << "\t the algorithm took as long as " << elapsedTimeBB << std::endl;
+			this->releaseTmpItems(Items);
+			break;
+		}
 		start = std::chrono::high_resolution_clock::now();
 		solutionStatus status = this->combinatorialBenders(Items, binWidth, binHeight, increment);
 		elapsedTimeBD += (std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now() - start)).count() / 1000000.0;
@@ -117,11 +117,10 @@ bool BLEU::yCheckAlgorithm(const int t_processedW, const int t_TrialHeight, cons
 	const std::vector<const item*> t_processedItems) const
 
 {
-	//std::vector<coordinate> Cords4yCheck = itemPositions;
-	//auto Items = this->preprocess4yCheck(t_processedItems, Cords4yCheck, t_TrialHeight, t_processedW);
-	//bool result = (this->yCheckEnumerationTree(Items, Cords4yCheck, t_TrialHeight, t_processedW) == solutionStatus::feasible);
-	//this->releaseTmpItems(Items);
-	bool result = (this->yCheckEnumerationTree(t_processedItems, itemPositions, t_TrialHeight, t_processedW) == solutionStatus::feasible);
+	std::vector<coordinate> Cords4yCheck = itemPositions;
+	auto Items = this->preprocess4yCheck(t_processedItems, Cords4yCheck, t_TrialHeight, t_processedW);
+	bool result = (this->yCheckEnumerationTree(Items, Cords4yCheck, t_TrialHeight, t_processedW) == solutionStatus::feasible);
+	this->releaseTmpItems(Items);
 	return result;
 }
 
@@ -799,7 +798,7 @@ const solutionStatus BLEU::combinatorialBenders(const std::vector<const item*>& 
 			{ 
 				std::cout << "\n y check fails"<<std::endl;
 				//// add a combinatorial cut
-				const std::vector<std::vector<int>> subsetItems = this->findSubset(t_binHeight, t_binWidth, t_Items, coordinates);
+				const std::vector<std::vector<int>> subsetItems = this->findSubset(t_binHeight, t_binWidth, t_Items, coordinates, allItemsMap);
 				for (size_t i = 0; i < subsetItems.size(); ++i)
 				{
 					std::cout << "\n adding combinatorial benders cuts......." << std::endl;
@@ -846,15 +845,18 @@ This is the center of the combinatorial cuts, it find a subset of variables to s
 The description of the method can be found at section 4.
 */
 const std::vector<std::vector<int>> BLEU::findSubset(const int t_binHeight, const int t_binWidth,const std::vector<const item*>& t_allItems,
-	const std::vector<coordinate>& t_Cords) const
+	const std::vector<coordinate>& t_Cords, const std::map<int, const item*>& t_allItemsMap) const
 {
 	std::vector<std::vector<int>> result;
 	std::vector<int> wholeSet;
 	for (const auto& it : t_allItems) wholeSet.push_back(it->idx);
-	// vertical cuts
-	auto VCSubsets = this->verticalCuts(t_binHeight, t_binWidth, t_allItems, t_Cords);
-	if (!VCSubsets.empty()) return VCSubsets;
-	result.push_back(wholeSet);
+	// first step vertical cuts
+	result = this->verticalCuts(t_binHeight, t_binWidth, t_allItems, t_Cords);
+	// second step
+	result = this->findSubSetSecondStep(t_binWidth, t_binHeight, result, t_allItemsMap, t_Cords);
+		// third step
+	result = this->findSubSetThirdStep(t_binWidth, t_binHeight, result, t_allItemsMap, t_Cords);
+	if(result.empty()) result.push_back(wholeSet);
 	return result;
 }
 
@@ -965,11 +967,161 @@ const std::vector<const item*> BLEU::getItemsPackedColumn(
 	return result;
 }
 
+/*
+Given a column, remove the items packed on the column
+Args: 
+  t_Column: the given column
+  t_Items: the set of indices of the items (the set we are dealing with)
+  t_Cords: the coordinates of all items
+  t_allItemsMap: a map of <item idx, item>
+*/
+const std::set<int> BLEU::getRemovedItems(const int t_Column, const std::vector<int>& t_Items,
+	const std::vector<coordinate>& t_Cords, const std::map<int, const item*>& t_allItemsMap) const
+{
+	std::set<int> removedItems;
+	for (const auto & it : t_Items)
+	{
+		auto tmpItem = t_allItemsMap.find(it)->second;
+		if (t_Cords[tmpItem->idxHelper].x <= t_Column && t_Cords[tmpItem->idxHelper].x + tmpItem->width >= t_Column)
+		{
+			removedItems.insert(tmpItem->idx);
+		}
+	}
+	return removedItems;
+}
+
 
 /*
-
-given a set of items, t_cp
+Given a subset of items and the whole coordinates, return the columns containing the subset
+Args£º
+	t_subset: the subset of items
+	t_Cords: the coordinates of all items
 */
+const std::vector<int> BLEU::getColumnsFromSubset(const std::vector<int>& t_subset, 
+	const std::map<int, const item*>& t_allItemsMap, const std::vector<coordinate>& t_Cords) const
+{
+	std::vector<int> result(2, -1);
+	int leftMost = 999999;
+	int rightMost = -1;
+	for (const auto & it : t_subset)
+	{
+		auto tmpItem = t_allItemsMap.find(it)->second;
+		if (t_Cords[tmpItem->idxHelper].x < leftMost) leftMost = t_Cords[tmpItem->idxHelper].x;
+		if (t_Cords[tmpItem->idxHelper].x + tmpItem->width -1 > rightMost) rightMost = t_Cords[tmpItem->idxHelper].x + tmpItem->width -1;
+	}
+	result[0] = leftMost;
+	result[1] = rightMost;
+	return result;
+}
+
+
+
+std::vector<std::vector<int>> BLEU::findSubSetSecondStep(const int t_binWidth, const int t_binHeight,const std::vector<std::vector<int>>& t_currentSubSets,
+	const std::map<int, const item*>& t_allItemsMap, const std::vector<coordinate>& t_Cords) const
+{
+	std::vector<std::vector<int>> result;
+	for (const auto& it : t_currentSubSets)
+	{
+		
+		std::vector<int> processingsubset = it;
+		// returned columns is the indices in the original columns set
+		auto columns = this->getColumnsFromSubset(processingsubset, t_allItemsMap, t_Cords);
+		int startCol = columns[0];
+		int rightCol = columns[1];
+		for (int i = startCol; i < rightCol; ++i)
+		{
+			std::cout << "from the left:\n";
+			auto removedItems = this->getRemovedItems(i, processingsubset, t_Cords, t_allItemsMap);
+			if (removedItems.empty()) continue;
+			std::vector<const item*> itemsYcheck;
+			auto candidate =  this->attemptRemove(t_binHeight, t_binWidth, processingsubset, removedItems, t_Cords, t_allItemsMap);
+			if (candidate.size() < processingsubset.size()) processingsubset = candidate;
+			else	break;		// go from the right-hand side
+		}
+		// right-handside
+		columns = this->getColumnsFromSubset(processingsubset, t_allItemsMap, t_Cords);
+		startCol = columns[0];
+		rightCol = columns[1];
+		for (int i = rightCol; i > startCol; --i)
+		{
+			std::cout << "from the right:\n";
+			std::cout << "column" << i << std::endl;
+			auto removedItems = this->getRemovedItems(i, processingsubset, t_Cords, t_allItemsMap);
+			if (removedItems.empty()) continue;
+			std::vector<const item*> itemsYcheck;
+			auto candidate = this->attemptRemove(t_binHeight, t_binWidth, processingsubset, removedItems, t_Cords, t_allItemsMap);
+			if (candidate.size() < processingsubset.size()) processingsubset = candidate;
+			else
+			{
+				result.push_back(processingsubset);
+				break;		// go from the right-hand side
+			}
+		}
+	}
+	return result;
+}
+
+
+
+std::vector<std::vector<int>> BLEU::findSubSetThirdStep(const int t_binWidth, const int t_binHeight, const std::vector<std::vector<int>>& t_currentSubSets,
+	const std::map<int, const item*>& t_allItemsMap, const std::vector<coordinate>& t_Cords) const
+{
+	std::vector<std::vector<int>> result;
+	for (const auto& it : t_currentSubSets)
+	{
+		std::vector<const item*> removingItems;
+		for (const auto & jt : it) removingItems.push_back(t_allItemsMap.find(jt)->second);
+		std::sort(removingItems.begin(), removingItems.end(), compareItemByArea);
+		std::vector<const item*> processingItems = removingItems;
+		for (size_t i = 0; i<removingItems.size(); ++i)
+		{
+			// remove the items
+			for (auto pt = processingItems.begin(); pt != processingItems.end(); ++pt)
+			{
+				if ((*pt)->idx == removingItems[i]->idx)
+				{
+					processingItems.erase(pt);
+					break;
+				}
+			}
+			if (this->yCheckAlgorithm(t_binWidth, t_binHeight, t_Cords, processingItems))
+			{
+				processingItems.push_back(removingItems[i]);
+			}	
+		}
+		std::vector<int> tmpVec;
+		for (const auto & jt : processingItems) tmpVec.push_back(jt->idx);
+		result.push_back(tmpVec);
+	}
+	return result;
+}
+
+/*
+given a set of removed Items and check if removed, a given range of columns are feasible or not
+*/
+
+std::vector<int> BLEU::attemptRemove(const int t_binHeight, const int t_binWidth, const std::vector<int>& t_processingsubset,
+	const std::set<int>& t_removedItems,
+	const std::vector<coordinate>& t_Cords, const std::map<int, const item*>& t_allItemsMap) const
+{
+	std::vector<int> result = t_processingsubset;
+	std::vector<const item*> itemsYcheck;
+	int idxHelper = 0;
+	for (const auto& pt : t_processingsubset)
+	{
+		if (t_removedItems.find(pt) == t_removedItems.end())
+		{
+			auto tmpItem = t_allItemsMap.find(pt)->second;
+			itemsYcheck.push_back(tmpItem);
+		}
+	}
+	if (!this->yCheckAlgorithm(t_binWidth, t_binHeight, t_Cords, itemsYcheck))
+	{
+		result.clear();
+		for (const auto & jt : itemsYcheck) result.push_back(jt->idx);
+	}
+	return result;
+}
 
 
 

@@ -172,7 +172,8 @@ void addBendersCut(IloCplex& t_cplex, const std::vector<const item*>& t_allItems
 	const IloArray<IloNumVarArray>& t_variables, const std::vector<IloNumVar>& t_selectedVars) const;
 
 const std::vector<std::vector<int>> findSubset(const int t_binHeight, const int t_binWidth,
-	const std::vector<const item*>& t_allItems, const std::vector<coordinate>& t_Cords) const;
+	const std::vector<const item*>& t_allItems, const std::vector<coordinate>& t_Cords,
+	const std::map<int, const item*>& t_allItemsMap) const;
 
 /*
 Return:
@@ -199,6 +200,24 @@ Return:
  const std::vector<const item*> getItemsPackedColumn(const std::vector<const item*>& t_allItems, 
 	 const std::vector<coordinate>& t_Cords,
 	 const int t_startColumn, const int t_endColumn, std::vector<coordinate>& t_Cords4ycheck) const;
+
+ std::vector<std::vector<int>> findSubSetSecondStep(const int t_binWidth, const int t_binHeight, const std::vector<std::vector<int>>& t_currentSubSets,
+	 const std::map<int, const item*>& t_allItemsMap, const std::vector<coordinate>& t_Cords) const;
+
+ std::vector<std::vector<int>> findSubSetThirdStep(const int t_binWidth, const int t_binHeight, const std::vector<std::vector<int>>& t_currentSubSets,
+	 const std::map<int, const item*>& t_allItemsMap, const std::vector<coordinate>& t_Cords) const;
+
+ const std::vector<int> getColumnsFromSubset(const std::vector<int>& t_subset, 
+	 const std::map<int, const item*>& t_allItemsMap, 
+	 const std::vector<coordinate>& t_Cords) const;
+
+
+ const std::set<int> getRemovedItems(const int t_Column, const std::vector<int>& t_Items,
+	 const std::vector<coordinate>& t_Cords, const std::map<int, const item*>& t_allItemsMap) const;
+
+std::vector<int> attemptRemove(const int t_binHeight, const int t_binWidth, const std::vector<int>& t_processingsubset,
+	const std::set<int>& t_removedItems,
+	 const std::vector<coordinate>& t_Cords, const std::map<int, const item*>& t_allItemsMap) const;
  /*
 Combinatorial Benders---------------------------------------------------end
 */

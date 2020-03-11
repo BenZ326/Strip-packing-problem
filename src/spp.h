@@ -161,6 +161,12 @@ bool compareItemByIdx(const item* t_i, const item* t_j)
 	return t_i->idx < t_j->idx;
 }
 
+inline bool compareItemByArea(const item* t_i, const item* t_j);
+bool compareItemByArea(const item* t_i, const item* t_j)
+{
+	return t_i->height*t_i->width < t_j->height*t_j->width;
+}
+
 class compareItemByWHDifference
 {
 public:
