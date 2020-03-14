@@ -21,8 +21,10 @@ public:
 	BLEU(const std::vector<const item*>& t_items, const int t_W);
 	void preprocessing();
 	void bounds();
-	void takeOff();			// start to solve
+	int takeOff();			// start to solve
 	void dumpSolution(const char* file_name = "Solution.output") const;
+	void dumpSolution(const char* file_name, const std::vector<const item*>& t_Items,
+		const std::vector<coordinate>& t_Solution) const;
 	
 // algorithms
 protected:
@@ -192,14 +194,14 @@ Args:
 Return:
 	the start columns and end columns of the infeasible subset of columns (only store the infeasible columns)
 */
- const std::vector<std::vector<int>>findSubsetItems4VerticalCut(const int t_binHeight, const int t_startColumn, const int t_endColumn,
+ const std::vector<std::vector<int>>findSubsetItems4VerticalCut(const int t_binWidth, const int t_binHeight, const int t_startColumn, const int t_endColumn,
 	const std::vector<const item*>& t_allItems, const std::vector<coordinate>& t_Cords, 
 	 std::vector<std::vector<int>>& t_subsetItems) const;
 
  const bool ifCrossOverColumn(const int t_Column, const std::vector<const item*>& t_allItems, const std::vector<coordinate>& t_Cords) const;
  const std::vector<const item*> getItemsPackedColumn(const std::vector<const item*>& t_allItems, 
 	 const std::vector<coordinate>& t_Cords,
-	 const int t_startColumn, const int t_endColumn, std::vector<coordinate>& t_Cords4ycheck) const;
+	 const int t_startColumn, const int t_endColumn) const;
 
  std::vector<std::vector<int>> findSubSetSecondStep(const int t_binWidth, const int t_binHeight, const std::vector<std::vector<int>>& t_currentSubSets,
 	 const std::map<int, const item*>& t_allItemsMap, const std::vector<coordinate>& t_Cords) const;
@@ -233,6 +235,8 @@ private:
 	int _bestLowerBound;
 	int _trialHeight;			// the current height being tried
 	std::vector<coordinate> _finalSolution;
+	const bool _evaluatedMode;			// if it is true, then the algorithm starts from a given height, the mission is to determine if the height is feasible
+
 
 
 

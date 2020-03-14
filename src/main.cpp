@@ -18,7 +18,7 @@ int main()
 		std::vector<const item*> allItems;
 		int W = readData(filePath, allItems);
 		BLEU alg(allItems,W);
-		alg.takeOff();
+		std::cout<<"possible height is" <<alg.takeOff()<<std::endl;
 		for (auto it = allItems.begin(); it != allItems.end(); ++it)
 			delete (*it);
 	}

@@ -155,6 +155,7 @@ bool compareItemByHeight(const item* t_i, const item* t_j)
 	return t_i->height < t_j->height || (t_i->height == t_j->height && t_i->idx > t_j->idx);
 }
 
+
 inline bool compareItemByIdx(const item* t_i, const item* t_j);
 bool compareItemByIdx(const item* t_i, const item* t_j)
 {

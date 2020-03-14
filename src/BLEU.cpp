@@ -9,30 +9,32 @@
 
 double BLEU::tolerance = 0.0001;
 int BLEU::bigNumber = 999999;
-int BLEU::BBMaxExplNodesPerPack = 500000;
-int BLEU::BBMaxExplNodesNonPerPack = 50000;
+int BLEU::BBMaxExplNodesPerPack = 100000;
+int BLEU::BBMaxExplNodesNonPerPack = 200000;
 int BLEU::interestingStatics = 0;
 
 /*
-
+only invoke when it's in evaluatedMode
 */
 BLEU::BLEU(const std::vector<const item*>& t_items, const int t_W, const int t_TrialHeight)
-	:_allItems(t_items),_W(t_W), _trialHeight(t_TrialHeight)
-{
-	// sort the items by the nonincreasing of width and breaking ties by nonincreasing height
-	std::sort(_allItems.begin(), _allItems.end(), compareItemByWidth);
-	this->reassignItemsIdx();
-}
-
-BLEU::BLEU(const std::vector<const item*>& t_items, const int t_W)
-	:_allItems(t_items), _W(t_W)
+	:_allItems(t_items),_W(t_W), _trialHeight(t_TrialHeight), _evaluatedMode(true)
 {
 	// sort the items by the nonincreasing of width and breaking ties by nonincreasing height
 	std::sort(_allItems.begin(), _allItems.end(), compareItemByWidth);
 	this->reassignItemsIdx();
 	this->preprocessing();
 	this->bounds();
-	_trialHeight = _bestLowerBound;
+	
+}
+
+BLEU::BLEU(const std::vector<const item*>& t_items, const int t_W)
+	:_allItems(t_items), _W(t_W), _evaluatedMode(false)
+{
+	// sort the items by the nonincreasing of width and breaking ties by nonincreasing height
+	std::sort(_allItems.begin(), _allItems.end(), compareItemByWidth);
+	this->reassignItemsIdx();
+	this->preprocessing();
+	this->bounds();
 }
 
 /*
@@ -47,16 +49,80 @@ void BLEU::reassignItemsIdx()
 	}
 }
 
-void BLEU::takeOff()
+/*
+There are two modes, one is the to solve an SPP algorithm, e.g. minimizing the height
+
+The other mode is evaluating a given height to see if there is a packing can realize the height
+if it is feasible, then return the height
+else return the next possible height, implying the the height is infeasible for any packing
+
+*/
+int BLEU::takeOff()
 {
-	//std::cout<<"result of the b&b "<<this->branchAndBound()<<std::endl;
-	double elapsedTimeBB = 0.0;
-	double elapsedTimeBD = 0.0;
-	int increment = 0;
-	while (true)
+	
+	switch (_evaluatedMode)
 	{
+	case false:
+	{
+		//std::cout<<"result of the b&b "<<this->branchAndBound()<<std::endl;
+		double elapsedTimeBB = 0.0;
+		double elapsedTimeBD = 0.0;
+		int increment = 0;
+		while (true)
+		{
+			int binWidth = _processedW;
+			int binHeight = _bestLowerBound - _processedH + increment;
+			std::vector<const item*> Items;
+			for (const auto& it : _processedItems)
+			{
+				const item* tmp = new item(it->idx, it->width, it->height, it->idxHelper);
+				Items.push_back(tmp);
+			}
+			auto rotate = this->ifRotateInstance(binHeight);
+			if (rotate)
+			{
+				std::cout << "rotate \n";
+				this->rotateInstance(Items, binWidth, binHeight);
+			}
+			auto start = std::chrono::high_resolution_clock::now();
+			auto bbStatus = this->branchAndBound(Items, binWidth, binHeight);
+			elapsedTimeBB += (std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now() - start)).count() / 1000000.0;
+			std::cout << "\nresult of the b&b " << bbStatus << std::endl;
+			if (bbStatus == solutionStatus::feasible)
+			{
+				std::cout << "The B&B solution is " << _bestLowerBound + increment << std::endl;
+				std::cout << "\t the algorithm took as long as " << elapsedTimeBB << std::endl;
+				this->releaseTmpItems(Items);
+				break;
+			}
+			start = std::chrono::high_resolution_clock::now();
+			solutionStatus status = this->combinatorialBenders(Items, binWidth, binHeight, increment);
+			elapsedTimeBD += (std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now() - start)).count() / 1000000.0;
+			//std::cout << "result of the combinatorial benders is  " << status << "the height is "<<binHeight + _processedH<<std::endl;
+			if (status == solutionStatus::feasible)
+			{
+				std::cout << "The benders solution is " << _bestLowerBound + increment << std::endl;
+				std::cout << "\t the algorithm took as long as " << elapsedTimeBD << std::endl;
+				this->releaseTmpItems(Items);
+				break;
+			}
+			else
+			{
+				this->releaseTmpItems(Items);
+			}
+		}
+		return _bestLowerBound + increment;
+		break;
+	}
+	case true:
+	{
+		if (_bestLowerBound > _trialHeight) return _bestLowerBound;
+		//std::cout<<"result of the b&b "<<this->branchAndBound()<<std::endl;
+		double elapsedTimeBB = 0.0;
+		double elapsedTimeBD = 0.0;
 		int binWidth = _processedW;
-		int binHeight = _bestLowerBound - _processedH + increment;
+		int binHeight = _trialHeight - _processedH;
+		int increment = 0;
 		std::vector<const item*> Items;
 		for (const auto& it : _processedItems)
 		{
@@ -75,9 +141,9 @@ void BLEU::takeOff()
 		std::cout << "\nresult of the b&b " << bbStatus << std::endl;
 		if (bbStatus == solutionStatus::feasible)
 		{
-			std::cout << "The solution is " << _bestLowerBound + increment << std::endl;
-			std::cout << "\t the algorithm took as long as " << elapsedTimeBB << std::endl;
 			this->releaseTmpItems(Items);
+			std::cout << "\nthe b& b algorithm took " << elapsedTimeBB;
+			return _trialHeight;
 			break;
 		}
 		start = std::chrono::high_resolution_clock::now();
@@ -86,16 +152,21 @@ void BLEU::takeOff()
 		//std::cout << "result of the combinatorial benders is  " << status << "the height is "<<binHeight + _processedH<<std::endl;
 		if (status == solutionStatus::feasible)
 		{
-			std::cout << "The solution is " << _bestLowerBound + increment << std::endl;
-			std::cout << "\t the algorithm took as long as " << elapsedTimeBD << std::endl;
 			this->releaseTmpItems(Items);
+			std::cout << "\nthe Benders algorithm took " << elapsedTimeBD;
+			return _trialHeight;
 			break;
-		}	
+		}
 		else
 		{
 			this->releaseTmpItems(Items);
+			std::cout << "\nthe Benders algorithm took " << elapsedTimeBD;
+			return _trialHeight + increment;
 		}
+		break;
 	}
+	}
+	
 	
 
 }
@@ -121,6 +192,8 @@ bool BLEU::yCheckAlgorithm(const int t_processedW, const int t_TrialHeight, cons
 	auto Items = this->preprocess4yCheck(t_processedItems, Cords4yCheck, t_TrialHeight, t_processedW);
 	bool result = (this->yCheckEnumerationTree(Items, Cords4yCheck, t_TrialHeight, t_processedW) == solutionStatus::feasible);
 	this->releaseTmpItems(Items);
+	//bool result = (this->yCheckEnumerationTree(t_processedItems, itemPositions, t_TrialHeight
+	//	, t_processedW) == solutionStatus::feasible);
 	return result;
 }
 
@@ -241,6 +314,7 @@ void BLEU::yCheckMakeBranch(const std::unique_ptr<BBNode>& t_currentNode,
 							if (copyRemainingItems[k]->height <= std::min(l_niche - t_currentNode->columnsOccupiedHeight[niche[0]], copyRemainingItems[i]->height))
 							{
 								fathom = true;
+								break;
 							}
 						}
 					
@@ -250,10 +324,11 @@ void BLEU::yCheckMakeBranch(const std::unique_ptr<BBNode>& t_currentNode,
 			}
 			if (fathom) continue;
 			std::unique_ptr<BBNode> child(new BBNode(*t_currentNode, copyRemainingItems[i]));
+			child->itemPositions[copyRemainingItems[i]->idxHelper].y = 
+				child->columnsOccupiedHeight[child->itemPositions[copyRemainingItems[i]->idxHelper].x];
 			for (size_t j = child->itemPositions[copyRemainingItems[i]->idxHelper].x; 
 				j < child->itemPositions[copyRemainingItems[i]->idxHelper].x + copyRemainingItems[i]->width; ++j)
 			{
-				child->itemPositions[copyRemainingItems[i]->idxHelper].y = child->columnsOccupiedHeight[j];
 				child->columnsOccupiedHeight[j] += copyRemainingItems[i]->height;
 			}
 			// fathoming criteria 2
@@ -381,7 +456,7 @@ const bool BLEU::bounding(const std::unique_ptr<BBNode>& t_currentNode) const
 	if (remainingArea > spaceArea)
 		return true;
 	// fathoming criteria 4
-	// dynamic cuts:
+	 //dynamic cuts:
 	if (this->dynamicCuts(t_currentNode))
 	{
 		BLEU::interestingStatics++;
@@ -422,20 +497,18 @@ void  BLEU::makeBranch(const std::unique_ptr<BBNode>& t_currentNode,
 		if (t_currentNode->maxiItemIdxColumns[selectedColumn] > chosenItem->idx)
 			continue;
 		int minHeight = 99999;
-		if (i < copyRemainingItems.size() - 1)
+		for (size_t k = 0; k < copyRemainingItems.size(); ++k)
 		{
-			for (size_t k = i + 1; k < copyRemainingItems.size(); ++k)
-			{
-				if (minHeight > copyRemainingItems[k]->height)
-					minHeight = copyRemainingItems[k]->height;
-			}
+			if (k == i) continue;
+			if (minHeight > copyRemainingItems[k]->height)
+				minHeight = copyRemainingItems[k]->height;
 		}
 		// make a child by pack the item on the column, update the coordinate 
 		std::unique_ptr<BBNode> child(new BBNode(*t_currentNode.get(), copyRemainingItems[i]));
 		child->itemPositions[chosenItem->idxHelper].x = selectedColumn;
 		child->itemPositions[chosenItem->idxHelper].y = t_currentNode->columnsOccupiedHeight[selectedColumn];
 		child->maxiItemIdxColumns[selectedColumn] = chosenItem->idx;
-		// if there exists an item can be added on the column
+		//if there exists an item can be added on the column
 		for (int offset = 0; offset <= chosenItem->width - 1; ++offset)
 		{
 			if (chosenItem->height + t_currentNode->columnsOccupiedHeight[selectedColumn + offset] + minHeight
@@ -470,8 +543,6 @@ const solutionStatus BLEU::branchAndBound(const std::vector<const item*>& t_Item
 	for (const auto& it : t_Items) totalArea += it->width*it->height;
 	if (abs(tmpH-(totalArea / tmpW)) <BLEU::tolerance) maxExpNodes = BLEU::BBMaxExplNodesPerPack;
 	else maxExpNodes = BLEU::BBMaxExplNodesNonPerPack;
-	std::cout << "totalArea/tmpW = " << totalArea / tmpW << " height is " << tmpH << std::endl;
-	std::cout << "maximal explored nodes " << maxExpNodes<<std::endl;
 	std::stack<std::unique_ptr<BBNode>> dfsTree;
 	dfsTree.push(std::move(root));
 	int numberExploredNodes = 0;
@@ -482,8 +553,10 @@ const solutionStatus BLEU::branchAndBound(const std::vector<const item*>& t_Item
 		// if it's a feasible solution then invoke the y-check algorithm
 		if (currentNode->remainingItems.empty())
 		{
-			std::cout << "start to do y-check in b&b ....." << std::endl;
-			if (this->yCheckAlgorithm(tmpW, tmpH, currentNode->itemPositions, t_Items))	return solutionStatus::feasible;
+			if (this->yCheckAlgorithm(tmpW, tmpH, currentNode->itemPositions, t_Items))
+			{
+				return solutionStatus::feasible;
+			}
 			else continue;							// the node can not be transformed to a feasible solution for the SPP
 		}
 		else
@@ -498,7 +571,6 @@ const solutionStatus BLEU::branchAndBound(const std::vector<const item*>& t_Item
 	}
 	if (numberExploredNodes >= maxExpNodes)
 	{
-		std::cout << "\t exceed the node limit";
 		return solutionStatus::pending;
 	}
 	else return solutionStatus::infeasible;
@@ -697,6 +769,7 @@ std::vector<coordinate> BLEU::extractInfo4Ycheck(const std::vector<const item*>&
 
 /*
 Given the width and height and the items, go to solve the problem
+t_Items: should be sorted by increasing order of indexHelper 
 */
 // The combinatorialBenders algorithm
 const solutionStatus BLEU::combinatorialBenders(const std::vector<const item*>& t_Items, const int t_binWidth,
@@ -852,11 +925,12 @@ const std::vector<std::vector<int>> BLEU::findSubset(const int t_binHeight, cons
 	for (const auto& it : t_allItems) wholeSet.push_back(it->idx);
 	// first step vertical cuts
 	result = this->verticalCuts(t_binHeight, t_binWidth, t_allItems, t_Cords);
+	if (result.empty()) result.push_back(wholeSet);
 	// second step
 	result = this->findSubSetSecondStep(t_binWidth, t_binHeight, result, t_allItemsMap, t_Cords);
-		// third step
-	result = this->findSubSetThirdStep(t_binWidth, t_binHeight, result, t_allItemsMap, t_Cords);
-	if(result.empty()) result.push_back(wholeSet);
+	// second step
+//		 third step
+	//result = this->findSubSetThirdStep(t_binWidth, t_binHeight, result, t_allItemsMap, t_Cords);
 	return result;
 }
 
@@ -874,7 +948,7 @@ const std::vector<std::vector<int>> BLEU::verticalCuts(const int t_binHeight, co
 	{
 		auto currentInterval = startEndColumns.top();
 		startEndColumns.pop();
-		auto nextIntervals = this->findSubsetItems4VerticalCut(t_binHeight, currentInterval[0],
+		auto nextIntervals = this->findSubsetItems4VerticalCut(t_binWidth, t_binHeight, currentInterval[0],
 			currentInterval[1], t_allItems, t_Cords, allSubsets);
 		if (!nextIntervals.empty())
 			for (const auto& it : nextIntervals) startEndColumns.push(it);
@@ -883,7 +957,7 @@ const std::vector<std::vector<int>> BLEU::verticalCuts(const int t_binHeight, co
 	return allSubsets;
 }
 
-const std::vector<std::vector<int>> BLEU::findSubsetItems4VerticalCut(const int t_binHeight, const int t_startColumn, const int t_endColumn,
+const std::vector<std::vector<int>> BLEU::findSubsetItems4VerticalCut(const int t_binWidth, const int t_binHeight, const int t_startColumn, const int t_endColumn,
 	const std::vector<const item*>& t_allItems, const std::vector<coordinate>& t_Cords,
 	std::vector<std::vector<int>>& t_subsetItems) const
 {
@@ -895,8 +969,8 @@ const std::vector<std::vector<int>> BLEU::findSubsetItems4VerticalCut(const int 
 			// split the columns
 			// the left subset:
 			std::vector<coordinate> leftCords;
-			auto leftColumnsItems = this->getItemsPackedColumn(t_allItems, t_Cords, t_startColumn, i, leftCords);
-			bool leftfeasibility = this->yCheckAlgorithm(i - t_startColumn + 1, t_binHeight, leftCords, leftColumnsItems);
+			auto leftColumnsItems = this->getItemsPackedColumn(t_allItems, t_Cords, t_startColumn, i);
+			bool leftfeasibility = this->yCheckAlgorithm(t_binWidth, t_binHeight, t_Cords, leftColumnsItems);
 			if (!leftfeasibility)
 			{
 				std::vector<int> leftSubset(2, -1);
@@ -909,8 +983,8 @@ const std::vector<std::vector<int>> BLEU::findSubsetItems4VerticalCut(const int 
 			}
 			// right subset:
 			std::vector<coordinate> rightCords;
-			auto rightColumnsItems = this->getItemsPackedColumn(t_allItems, t_Cords, i + 1, t_endColumn, rightCords);
-			bool rightfeasibility = this->yCheckAlgorithm(t_endColumn - i, t_binHeight, rightCords, rightColumnsItems);
+			auto rightColumnsItems = this->getItemsPackedColumn(t_allItems, t_Cords, i + 1, t_endColumn);
+			bool rightfeasibility = this->yCheckAlgorithm(t_binWidth, t_binHeight, t_Cords, rightColumnsItems);
 			if (!rightfeasibility)
 			{
 				std::vector<int> rightSubset(2, -1);
@@ -921,8 +995,6 @@ const std::vector<std::vector<int>> BLEU::findSubsetItems4VerticalCut(const int 
 				for (const auto& it : rightColumnsItems) subsetItems.push_back(it->idx);
 				t_subsetItems.push_back(subsetItems);
 			}
-			this->releaseTmpItems(leftColumnsItems);
-			this->releaseTmpItems(rightColumnsItems);
 			return result;
 		}
 	}
@@ -951,7 +1023,7 @@ create new items!!
 */
 const std::vector<const item*> BLEU::getItemsPackedColumn(
 	const std::vector<const item*>& t_allItems, const std::vector<coordinate>& t_Cords, 
-	const int t_startColumn, const int t_endColumn, std::vector<coordinate>& t_Cords4ycheck) const
+	const int t_startColumn, const int t_endColumn) const
 {
 	std::vector<const item*> result;
 	int idxHelper = 0;
@@ -959,9 +1031,7 @@ const std::vector<const item*> BLEU::getItemsPackedColumn(
 	{
 		if (t_Cords[it->idxHelper].x >= t_startColumn && t_Cords[it->idxHelper].x <= t_endColumn)
 		{
-			const item* tmp = new item(it->idx, it->width, it->height, idxHelper++);
-			t_Cords4ycheck.push_back(t_Cords[it->idxHelper]);
-			result.push_back(tmp);
+			result.push_back(it);
 		}
 	}
 	return result;
@@ -982,7 +1052,7 @@ const std::set<int> BLEU::getRemovedItems(const int t_Column, const std::vector<
 	for (const auto & it : t_Items)
 	{
 		auto tmpItem = t_allItemsMap.find(it)->second;
-		if (t_Cords[tmpItem->idxHelper].x <= t_Column && t_Cords[tmpItem->idxHelper].x + tmpItem->width >= t_Column)
+		if (t_Cords[tmpItem->idxHelper].x <= t_Column && t_Cords[tmpItem->idxHelper].x + tmpItem->width -1 >= t_Column)
 		{
 			removedItems.insert(tmpItem->idx);
 		}
@@ -1019,6 +1089,7 @@ const std::vector<int> BLEU::getColumnsFromSubset(const std::vector<int>& t_subs
 std::vector<std::vector<int>> BLEU::findSubSetSecondStep(const int t_binWidth, const int t_binHeight,const std::vector<std::vector<int>>& t_currentSubSets,
 	const std::map<int, const item*>& t_allItemsMap, const std::vector<coordinate>& t_Cords) const
 {
+	std::cout << "\nenter the second step..." << std::endl;
 	std::vector<std::vector<int>> result;
 	for (const auto& it : t_currentSubSets)
 	{
@@ -1106,7 +1177,6 @@ std::vector<int> BLEU::attemptRemove(const int t_binHeight, const int t_binWidth
 {
 	std::vector<int> result = t_processingsubset;
 	std::vector<const item*> itemsYcheck;
-	int idxHelper = 0;
 	for (const auto& pt : t_processingsubset)
 	{
 		if (t_removedItems.find(pt) == t_removedItems.end())
@@ -1540,6 +1610,13 @@ void BLEU::rotateInstance(std::vector<const item*>& t_Items, int& t_binWidth, in
 		const_cast<item*>(it)->width = it->height;
 		const_cast<item*>(it)->height = tmpW;
 	}
+	//std::sort(t_Items.begin(), t_Items.end(), compareItemByWidth);
+	//int idx = 0;
+	//for (const auto& it : t_Items)
+	//{
+	//	const_cast<item*>(it)->idx = idx;
+	//	const_cast<item*>(it)->idxHelper = idx++;
+	//}
 	int tmpWidth = t_binWidth;
 	t_binWidth = t_binHeight;
 	t_binHeight = tmpWidth;
@@ -1587,9 +1664,10 @@ void BLEU::dumpSolution(const char* file_name) const
 	std::ostringstream ss;
 	for (size_t i = 0; i < _processedItems.size(); ++i)
 	{
+		auto tmp = _processedItems[i];
 		ss.str("");
 		ss.clear();
-		ss << _processedItems[i]->idx << "," << _finalSolution[i].x << "," << _finalSolution[i].y << "\n";
+		ss << tmp->idx << "," << _finalSolution[tmp->idxHelper].x << "," << _finalSolution[tmp->idxHelper].y << "\n";
 		ofs << ss.str();
 	}
 	ofs.close();
@@ -1599,6 +1677,31 @@ void BLEU::dumpSolution(const char* file_name) const
 		ss.str("");
 		ss.clear();
 		ss << _processedItems[i]->idx << "," << _processedItems[i]->width << "," << _processedItems[i]->height << "\n";
+		ofs << ss.str();
+	}
+	ofs.close();
+}
+
+void BLEU::dumpSolution(const char* file_name,const std::vector<const item*>& t_Items,
+	const std::vector<coordinate>& t_Solution) const
+{
+	std::ofstream ofs(file_name);
+	std::ostringstream ss;
+	for (size_t i = 0; i < t_Items.size(); ++i)
+	{
+		auto tmp = t_Items[i];
+		ss.str("");
+		ss.clear();
+		ss << tmp->idx << "," << t_Solution[tmp->idxHelper].x << "," << t_Solution[tmp->idxHelper].y << "\n";
+		ofs << ss.str();
+	}
+	ofs.close();
+	ofs.open("Rectangle.output");
+	for (size_t i = 0; i < t_Items.size(); ++i)
+	{
+		ss.str("");
+		ss.clear();
+		ss << t_Items[i]->idx << "," << t_Items[i]->width << "," << t_Items[i]->height << "\n";
 		ofs << ss.str();
 	}
 	ofs.close();
