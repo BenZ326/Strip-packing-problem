@@ -1503,7 +1503,7 @@ const int BLEU::LowerBound4()const
 		while (true)
 		{
 			cplex.solve();
-			cplex.exportModel("NCBP.lp");
+			//cplex.exportModel("NCBP.lp");
 			// solve the pricing problem
 			std::vector<IloNum> dualValues;
 			for (size_t i=0; i<_processedItems.size(); ++i)
