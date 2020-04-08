@@ -4,9 +4,11 @@
 #include <sstream>
 #include <algorithm>
 #include<math.h>
+#include "spp.h"
 
 
-int readData(const std::string& t_file, std::vector<const item*>& t_items)
+
+int readData(const std::string& t_file, std::vector<const StripPacking::item*>& t_items)
 {
 	int maxWidth;
 	std::ifstream ff(t_file);
@@ -25,7 +27,7 @@ int readData(const std::string& t_file, std::vector<const item*>& t_items)
 				continue;
 			}
 			auto res = parseLine(line);
-			item* rec = new item(res[0], res[1], res[2]);
+			StripPacking::item* rec = new StripPacking::item(res[0], res[1], res[2]);
 			t_items.push_back(rec);
 			if (res[0] == n) break;
 		}

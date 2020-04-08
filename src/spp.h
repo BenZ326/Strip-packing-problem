@@ -1,12 +1,13 @@
 #pragma once
 #include <vector>
-#include "datareader.h"
 #include <list>
 #include <ilcplex/ilocplex.h>
 #include <map>
 #include <set>
 #include <algorithm>
 
+namespace StripPacking
+{
 
 enum solutionStatus {
 	feasible,
@@ -203,7 +204,7 @@ public:
 };
 
 
-
+}
 
 
 

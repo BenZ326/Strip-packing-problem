@@ -1,7 +1,10 @@
 #pragma once
-#include "datareader.h"
+#include "spp.h"
 #include <stack>
 class itemPieceWidth;
+namespace StripPacking
+{
+
 /*
 Fully reproduce the paper: Combinatorial Benders' Cuts for the strip packing problem
 */
@@ -241,3 +244,5 @@ private:
 
 
 };
+
+}

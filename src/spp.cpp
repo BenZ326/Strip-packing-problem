@@ -1,5 +1,4 @@
 #include "spp.h"
-#include "datareader.h"
 #include <algorithm>
 #include <list>
 #include <set>
@@ -12,20 +11,20 @@ flag = true, -->  width
 */
 
 
-std::ostringstream item::ss;
-item::item(const int t_idx, const int t_width, const int t_height) :idx(t_idx), width(t_width), height(t_height)
+std::ostringstream StripPacking::item::ss;
+StripPacking::item::item(const int t_idx, const int t_width, const int t_height) :idx(t_idx), width(t_width), height(t_height)
 {
 	subItems.clear();
 }
 
-item::item(const int t_idx, const int t_width, const int t_height, const int t_idxHelper) : idx(t_idx), width(t_width), height(t_height),
+StripPacking::item::item(const int t_idx, const int t_width, const int t_height, const int t_idxHelper) : idx(t_idx), width(t_width), height(t_height),
 idxHelper(t_idxHelper)
 {
 	subItems.clear();
 }
 
-std::set<int> computeFX(const int t_x,  const int t_idx,
-	const std::vector<const item*>& t_items, bool flag)
+std::set<int> StripPacking::computeFX(const int t_x,  const int t_idx,
+	const std::vector<const StripPacking::item*>& t_items, bool flag)
 {
 	std::vector<std::vector<int>> res;
 	for (size_t i = 0; i < t_items.size(); ++i)
@@ -65,7 +64,7 @@ std::set<int> computeFX(const int t_x,  const int t_idx,
 }
 
 
-int getMaximalHeight(const std::vector<const item*>& t_items)
+int StripPacking::getMaximalHeight(const std::vector<const StripPacking::item*>& t_items)
 {
 	int res = -1;
 	for (size_t i = 0; i < t_items.size(); ++i)
@@ -79,7 +78,7 @@ int getMaximalHeight(const std::vector<const item*>& t_items)
 /*
 Build the contiguity parallel machine scheduling problem as a lower bound for the spp
 */
-double solve(const std::vector<const item*>& t_allItems, const std::map<int, std::set<int>>& t_mapPosWidth,
+double StripPacking::solve(const std::vector<const StripPacking::item*>& t_allItems, const std::map<int, std::set<int>>& t_mapPosWidth,
 	const std::map<int, std::set<int>>& t_mapPosHeight, const bool t_Integer)
 {
 	// data preparation
@@ -96,7 +95,7 @@ double solve(const std::vector<const item*>& t_allItems, const std::map<int, std
 		IloExpr expr(env);
 		for (const auto& it2 : t_mapPosWidth.find(it->idx)->second)
 		{
-			auto varName = getVarName(it->idx, it2);
+			auto varName = StripPacking::getVarName(it->idx, it2);
 			if (t_Integer)
 			{
 				IloNumVar var(env, 0, 1, ILOINT, varName.c_str());
@@ -126,7 +125,7 @@ double solve(const std::vector<const item*>& t_allItems, const std::map<int, std
 			{
 				if (it2 <= q && it2 >= q - it->width + 1)
 				{
-					auto iter = allVars.find(getVarName(it->idx, it2));
+					auto iter = allVars.find(StripPacking::getVarName(it->idx, it2));
 					assert(iter != allVars.end());
 					expr += iter->second*it->height;
 				}

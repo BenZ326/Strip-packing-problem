@@ -15,9 +15,9 @@ int main()
 	{
 		std::string filePath = entry.path().relative_path().string();
 		std::cout << filePath;
-		std::vector<const item*> allItems;
+		std::vector<const StripPacking::item*> allItems;
 		int W = readData(filePath, allItems);
-		BLEU alg(allItems,W);
+		StripPacking::BLEU alg(allItems,W, 40);
 		std::cout<<"possible height is" <<alg.takeOff()<<std::endl;
 		for (auto it = allItems.begin(); it != allItems.end(); ++it)
 			delete (*it);

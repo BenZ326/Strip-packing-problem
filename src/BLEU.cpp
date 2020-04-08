@@ -7,16 +7,16 @@
 #include <stack>
 #include <chrono>
 
-double BLEU::tolerance = 0.0001;
-int BLEU::bigNumber = 999999;
-int BLEU::BBMaxExplNodesPerPack = 100000;
-int BLEU::BBMaxExplNodesNonPerPack = 200000;
-int BLEU::interestingStatics = 0;
+double StripPacking::BLEU::tolerance = 0.0001;
+int StripPacking::BLEU::bigNumber = 999999;
+int StripPacking::BLEU::BBMaxExplNodesPerPack = 100000;
+int StripPacking::BLEU::BBMaxExplNodesNonPerPack = 200000;
+int StripPacking::BLEU::interestingStatics = 0;
 
 /*
 only invoke when it's in evaluatedMode
 */
-BLEU::BLEU(const std::vector<const item*>& t_items, const int t_W, const int t_TrialHeight)
+StripPacking::BLEU::BLEU(const std::vector<const item*>& t_items, const int t_W, const int t_TrialHeight)
 	:_allItems(t_items),_W(t_W), _trialHeight(t_TrialHeight), _evaluatedMode(true)
 {
 	// sort the items by the nonincreasing of width and breaking ties by nonincreasing height
@@ -27,7 +27,7 @@ BLEU::BLEU(const std::vector<const item*>& t_items, const int t_W, const int t_T
 	
 }
 
-BLEU::BLEU(const std::vector<const item*>& t_items, const int t_W)
+StripPacking::BLEU::BLEU(const std::vector<const item*>& t_items, const int t_W)
 	:_allItems(t_items), _W(t_W), _evaluatedMode(false)
 {
 	// sort the items by the nonincreasing of width and breaking ties by nonincreasing height
@@ -40,7 +40,7 @@ BLEU::BLEU(const std::vector<const item*>& t_items, const int t_W)
 /*
 reassign idx for items
 */
-void BLEU::reassignItemsIdx()
+void StripPacking::BLEU::reassignItemsIdx()
 {
 	int idx = 0;
 	for (auto it = _allItems.begin(); it != _allItems.end(); ++it)
@@ -57,7 +57,7 @@ if it is feasible, then return the height
 else return the next possible height, implying the the height is infeasible for any packing
 
 */
-int BLEU::takeOff()
+int StripPacking::BLEU::takeOff()
 {
 	
 	switch (_evaluatedMode)
@@ -184,7 +184,7 @@ itemPositions: the left-bottom coordinates of all the items
 t_processedItems: all the items to be packed in the strip
 Return: if it is a feasible solution for the SPP then return true, else false
 */
-bool BLEU::yCheckAlgorithm(const int t_processedW, const int t_TrialHeight, const std::vector<coordinate>& itemPositions,
+bool StripPacking::BLEU::yCheckAlgorithm(const int t_processedW, const int t_TrialHeight, const std::vector<coordinate>& itemPositions,
 	const std::vector<const item*> t_processedItems) const
 
 {
@@ -204,7 +204,7 @@ t_xCords: the corresonding x coordinates of the items, with the same ordering as
 t_Height: the height of a bin to pack items in t_InterestItems
 t_Width: the width of a bin to pack items in t_InterestItems
 */
-solutionStatus BLEU::yCheckEnumerationTree(const std::vector<const item*>& t_InterestItems, const std::vector<coordinate>& t_Cords,
+StripPacking::solutionStatus StripPacking::BLEU::yCheckEnumerationTree(const std::vector<const item*>& t_InterestItems, const std::vector<coordinate>& t_Cords,
 	const int t_Height, const int t_Width) const
 {
 	if (t_Width == 0) return solutionStatus::infeasible;			// it could happen when the very item ends at the current last column, then there will be no space for any merge
@@ -228,7 +228,7 @@ solutionStatus BLEU::yCheckEnumerationTree(const std::vector<const item*>& t_Int
 	return solutionStatus::infeasible;
 }
 
-bool BLEU::yCheckBounding(const std::unique_ptr<BBNode>& t_currentNode) const
+bool StripPacking::BLEU::yCheckBounding(const std::unique_ptr<BBNode>& t_currentNode) const
 {
 	// fathoming criteria 1
 	for (size_t i = 0; i < t_currentNode->columnsOccupiedHeight.size(); ++i)
@@ -279,7 +279,7 @@ bool BLEU::yCheckBounding(const std::unique_ptr<BBNode>& t_currentNode) const
 	return false;
 }
 
-void BLEU::yCheckMakeBranch(const std::unique_ptr<BBNode>& t_currentNode,
+void StripPacking::BLEU::yCheckMakeBranch(const std::unique_ptr<BBNode>& t_currentNode,
 	std::stack<std::unique_ptr<BBNode>>& t_yEntree) const
 {
 	std::list<std::unique_ptr<BBNode>> children;
@@ -356,7 +356,7 @@ t_ColumnsHeight: it is the height of each column
 the return value is a two dimensional array, one element of the array is the start column of the niche
 while the second is the end column of the niche
 */
-std::vector<int> BLEU::getNiche(const std::vector<int>& t_ColumnHeights) const
+std::vector<int> StripPacking::BLEU::getNiche(const std::vector<int>& t_ColumnHeights) const
 {
 	std::vector<int>result (2, 0);
 	auto ptr = std::min_element(t_ColumnHeights.begin(), t_ColumnHeights.end());
@@ -384,7 +384,7 @@ the y-check algorithm ----------------------------------------------------------
 /*
 
 */
-BLEU::BBNode::BBNode(const std::vector<const item*>& t_remainingItems, const int t_Width, const int t_TrialHeight):
+StripPacking::BLEU::BBNode::BBNode(const std::vector<const item*>& t_remainingItems, const int t_Width, const int t_TrialHeight):
 remainingItems(t_remainingItems), trialHeight(t_TrialHeight)
 {
 	leftMostIdx = 0;
@@ -394,7 +394,7 @@ remainingItems(t_remainingItems), trialHeight(t_TrialHeight)
 	itemPositions = std::vector<coordinate>(t_remainingItems.size(), dummy);
 }
 
-BLEU::BBNode::BBNode(const BBNode& t_BBNode):trialHeight(t_BBNode.trialHeight)
+StripPacking::BLEU::BBNode::BBNode(const BBNode& t_BBNode):trialHeight(t_BBNode.trialHeight)
 {
 	leftMostIdx = t_BBNode.leftMostIdx;
 	columnsOccupiedHeight = t_BBNode.columnsOccupiedHeight;			// [10,5,3,2] means 10 units of height in the 1st column is occupied and 5 units for the 2nd column...
@@ -405,7 +405,7 @@ BLEU::BBNode::BBNode(const BBNode& t_BBNode):trialHeight(t_BBNode.trialHeight)
 }
 
 // build a BBNode for the y check algorithm
-BLEU::BBNode::BBNode(const std::vector<const item*>& t_remainingItems, const std::vector<coordinate>& t_Cords,
+StripPacking::BLEU::BBNode::BBNode(const std::vector<const item*>& t_remainingItems, const std::vector<coordinate>& t_Cords,
 	const int t_Width, const int t_TrialHeight):remainingItems(t_remainingItems), trialHeight(t_TrialHeight)
 {
 	leftMostIdx = 0;
@@ -415,7 +415,7 @@ BLEU::BBNode::BBNode(const std::vector<const item*>& t_remainingItems, const std
 	itemPositions = t_Cords;
 }
 
-BLEU::BBNode::BBNode(const BBNode& t_BBNode, const item* t_placedItem)			// invoked when making a branch, the t_placedItem is the packed item in this time of branching
+StripPacking::BLEU::BBNode::BBNode(const BBNode& t_BBNode, const item* t_placedItem)			// invoked when making a branch, the t_placedItem is the packed item in this time of branching
 :trialHeight(t_BBNode.trialHeight)
 {
 	packedItems = t_BBNode.packedItems;
@@ -432,7 +432,7 @@ BLEU::BBNode::BBNode(const BBNode& t_BBNode, const item* t_placedItem)			// invo
 	itemPositions = t_BBNode.itemPositions;
 }
 
-const bool BLEU::bounding(const std::unique_ptr<BBNode>& t_currentNode) const
+const bool StripPacking::BLEU::bounding(const std::unique_ptr<BBNode>& t_currentNode) const
 {
 	//fathoming criteria 1
 	if (!t_currentNode->packedItems.empty())
@@ -466,7 +466,7 @@ const bool BLEU::bounding(const std::unique_ptr<BBNode>& t_currentNode) const
 	
 }
 
-void  BLEU::makeBranch(const std::unique_ptr<BBNode>& t_currentNode,
+void  StripPacking::BLEU::makeBranch(const std::unique_ptr<BBNode>& t_currentNode,
  std::stack<std::unique_ptr<BBNode>>& t_dfstree) const
 {
 	std::set<whPair> packedPairs;
@@ -531,7 +531,7 @@ void  BLEU::makeBranch(const std::unique_ptr<BBNode>& t_currentNode,
 		t_dfstree.push(std::move((*it)));
 }
 
-const solutionStatus BLEU::branchAndBound(const std::vector<const item*>& t_Items, const int t_binWidth,
+const StripPacking::solutionStatus StripPacking::BLEU::branchAndBound(const std::vector<const item*>& t_Items, const int t_binWidth,
 	const int t_binHeight)
 {
 	int tmpW = t_binWidth;
@@ -576,7 +576,7 @@ const solutionStatus BLEU::branchAndBound(const std::vector<const item*>& t_Item
 	else return solutionStatus::infeasible;
 }
 
-const bool BLEU::dynamicCuts(const std::unique_ptr<BBNode>& t_currentNode) const
+const bool StripPacking::BLEU::dynamicCuts(const std::unique_ptr<BBNode>& t_currentNode) const
 {
 	std::list<coordinate> leftCorners;
 	int prev = t_currentNode->trialHeight;
@@ -748,7 +748,7 @@ Args:
 	2) t_cplex: the cplex model 
 	3) t_allVars: a map of variables, key is the idx of items and value is the corresponding variable in the model
 */
-std::vector<coordinate> BLEU::extractInfo4Ycheck(const std::vector<const item*>& t_allItems, 
+std::vector<StripPacking::coordinate> StripPacking::BLEU::extractInfo4Ycheck(const std::vector<const item*>& t_allItems,
 	const IloCplex& t_cplex, const IloArray<IloNumVarArray>& t_variables) const
 {
 	std::vector<coordinate> result(t_allItems.size(), coordinate(0, 0));
@@ -772,7 +772,7 @@ Given the width and height and the items, go to solve the problem
 t_Items: should be sorted by increasing order of indexHelper 
 */
 // The combinatorialBenders algorithm
-const solutionStatus BLEU::combinatorialBenders(const std::vector<const item*>& t_Items, const int t_binWidth,
+const StripPacking::solutionStatus StripPacking::BLEU::combinatorialBenders(const std::vector<const item*>& t_Items, const int t_binWidth,
 	const int t_binHeight, int & t_increment)
 {
 	std::map<int, const item*> allItemsMap;
@@ -901,7 +901,7 @@ const solutionStatus BLEU::combinatorialBenders(const std::vector<const item*>& 
 }
 
 
-void BLEU::addBendersCut(IloCplex& t_cplex, const std::vector<const item*>& t_allItems,
+void StripPacking::BLEU::addBendersCut(IloCplex& t_cplex, const std::vector<const item*>& t_allItems,
 	const IloArray<IloNumVarArray>& t_variables, const std::vector<IloNumVar>& t_selectedVars) const
 {
 	IloExpr bendersCut(t_cplex.getModel().getEnv());
@@ -917,7 +917,7 @@ void BLEU::addBendersCut(IloCplex& t_cplex, const std::vector<const item*>& t_al
 This is the center of the combinatorial cuts, it find a subset of variables to strenthen the benders cut
 The description of the method can be found at section 4.
 */
-const std::vector<std::vector<int>> BLEU::findSubset(const int t_binHeight, const int t_binWidth,const std::vector<const item*>& t_allItems,
+const std::vector<std::vector<int>> StripPacking::BLEU::findSubset(const int t_binHeight, const int t_binWidth,const std::vector<const item*>& t_allItems,
 	const std::vector<coordinate>& t_Cords, const std::map<int, const item*>& t_allItemsMap) const
 {
 	std::vector<std::vector<int>> result;
@@ -934,7 +934,7 @@ const std::vector<std::vector<int>> BLEU::findSubset(const int t_binHeight, cons
 	return result;
 }
 
-const std::vector<std::vector<int>> BLEU::verticalCuts(const int t_binHeight, const int t_binWidth, 
+const std::vector<std::vector<int>> StripPacking::BLEU::verticalCuts(const int t_binHeight, const int t_binWidth,
 	const std::vector<const item*>& t_allItems, const std::vector<coordinate>& t_Cords) const
 {
 	std::cout << "\n entering verticalCuts" << std::endl;
@@ -957,7 +957,7 @@ const std::vector<std::vector<int>> BLEU::verticalCuts(const int t_binHeight, co
 	return allSubsets;
 }
 
-const std::vector<std::vector<int>> BLEU::findSubsetItems4VerticalCut(const int t_binWidth, const int t_binHeight, const int t_startColumn, const int t_endColumn,
+const std::vector<std::vector<int>> StripPacking::BLEU::findSubsetItems4VerticalCut(const int t_binWidth, const int t_binHeight, const int t_startColumn, const int t_endColumn,
 	const std::vector<const item*>& t_allItems, const std::vector<coordinate>& t_Cords,
 	std::vector<std::vector<int>>& t_subsetItems) const
 {
@@ -1004,7 +1004,7 @@ const std::vector<std::vector<int>> BLEU::findSubsetItems4VerticalCut(const int 
 /*
 given a column, return if there exists an item ``cross over'' it
 */
-const bool BLEU::ifCrossOverColumn(const int t_Column,const std::vector<const item*>& t_allItems, const std::vector<coordinate>& t_Cords) const
+const bool StripPacking::BLEU::ifCrossOverColumn(const int t_Column,const std::vector<const item*>& t_allItems, const std::vector<coordinate>& t_Cords) const
 {
 	for (size_t i = 0; i < t_allItems.size(); ++i)
 	{
@@ -1021,8 +1021,8 @@ the function has to be invoked when you are sure that the given columns contain 
 (which means some items are partially packed in the column)
 create new items!!
 */
-const std::vector<const item*> BLEU::getItemsPackedColumn(
-	const std::vector<const item*>& t_allItems, const std::vector<coordinate>& t_Cords, 
+const std::vector<const StripPacking::item*> StripPacking::BLEU::getItemsPackedColumn(
+	const std::vector<const item*>& t_allItems, const std::vector<coordinate>& t_Cords,
 	const int t_startColumn, const int t_endColumn) const
 {
 	std::vector<const item*> result;
@@ -1045,7 +1045,7 @@ Args:
   t_Cords: the coordinates of all items
   t_allItemsMap: a map of <item idx, item>
 */
-const std::set<int> BLEU::getRemovedItems(const int t_Column, const std::vector<int>& t_Items,
+const std::set<int> StripPacking::BLEU::getRemovedItems(const int t_Column, const std::vector<int>& t_Items,
 	const std::vector<coordinate>& t_Cords, const std::map<int, const item*>& t_allItemsMap) const
 {
 	std::set<int> removedItems;
@@ -1067,7 +1067,7 @@ Args£º
 	t_subset: the subset of items
 	t_Cords: the coordinates of all items
 */
-const std::vector<int> BLEU::getColumnsFromSubset(const std::vector<int>& t_subset, 
+const std::vector<int> StripPacking::BLEU::getColumnsFromSubset(const std::vector<int>& t_subset,
 	const std::map<int, const item*>& t_allItemsMap, const std::vector<coordinate>& t_Cords) const
 {
 	std::vector<int> result(2, -1);
@@ -1086,7 +1086,7 @@ const std::vector<int> BLEU::getColumnsFromSubset(const std::vector<int>& t_subs
 
 
 
-std::vector<std::vector<int>> BLEU::findSubSetSecondStep(const int t_binWidth, const int t_binHeight,const std::vector<std::vector<int>>& t_currentSubSets,
+std::vector<std::vector<int>> StripPacking::BLEU::findSubSetSecondStep(const int t_binWidth, const int t_binHeight,const std::vector<std::vector<int>>& t_currentSubSets,
 	const std::map<int, const item*>& t_allItemsMap, const std::vector<coordinate>& t_Cords) const
 {
 	std::cout << "\nenter the second step..." << std::endl;
@@ -1134,7 +1134,7 @@ std::vector<std::vector<int>> BLEU::findSubSetSecondStep(const int t_binWidth, c
 
 
 
-std::vector<std::vector<int>> BLEU::findSubSetThirdStep(const int t_binWidth, const int t_binHeight, const std::vector<std::vector<int>>& t_currentSubSets,
+std::vector<std::vector<int>> StripPacking::BLEU::findSubSetThirdStep(const int t_binWidth, const int t_binHeight, const std::vector<std::vector<int>>& t_currentSubSets,
 	const std::map<int, const item*>& t_allItemsMap, const std::vector<coordinate>& t_Cords) const
 {
 	std::vector<std::vector<int>> result;
@@ -1171,7 +1171,7 @@ std::vector<std::vector<int>> BLEU::findSubSetThirdStep(const int t_binWidth, co
 given a set of removed Items and check if removed, a given range of columns are feasible or not
 */
 
-std::vector<int> BLEU::attemptRemove(const int t_binHeight, const int t_binWidth, const std::vector<int>& t_processingsubset,
+std::vector<int> StripPacking::BLEU::attemptRemove(const int t_binHeight, const int t_binWidth, const std::vector<int>& t_processingsubset,
 	const std::set<int>& t_removedItems,
 	const std::vector<coordinate>& t_Cords, const std::map<int, const item*>& t_allItemsMap) const
 {
@@ -1216,7 +1216,7 @@ std::vector<int> BLEU::attemptRemove(const int t_binHeight, const int t_binWidth
 /*
 Cut all items into pieces along the direction of height
 */
-void BLEU::cutItemsAlongHeight()
+void StripPacking::BLEU::cutItemsAlongHeight()
 {
 	int idx = 0;
 	for (const auto& it : _allItems)
@@ -1232,7 +1232,7 @@ void BLEU::cutItemsAlongHeight()
 /*
 5.1 the three preprocessing procedures
 */
-void BLEU::preprocessing()
+void StripPacking::BLEU::preprocessing()
 {
 	this->preprocessingFixItems();
 	this->preprocessingReduceW();
@@ -1244,7 +1244,7 @@ An exact algorithm for the two-dimensional strip packing problem 2010 by Marco A
 Section 2.2.1
 find a subset of items containing all items that cannot be placed side by side with any other items
 */
-void BLEU::preprocessingFixItems()
+void StripPacking::BLEU::preprocessingFixItems()
 {
 	// find the item with the minimal width
 	int minWidth = _allItems.back()->width;
@@ -1267,7 +1267,7 @@ void BLEU::preprocessingFixItems()
 Calculate the maximal width that a subset of items can be packed side by side if the maximal width is strictly less than W,
 than W = the maximal width
 */
-void BLEU::preprocessingReduceW()
+void StripPacking::BLEU::preprocessingReduceW()
 {
 	for (const auto& it : _processedItems)
 		_allWidths.push_back(it->width);
@@ -1277,7 +1277,7 @@ void BLEU::preprocessingReduceW()
 /*
 modify width for items according to 2.2.3 in the paper "An exact algorithm for the two-dimensional strip packing problem"
 */
-void BLEU::preprocessingModifyItemWidth()
+void StripPacking::BLEU::preprocessingModifyItemWidth()
 {
 	for (std::vector<const item*>::iterator i_it = _processedItems.begin(); i_it != _processedItems.end(); ++i_it)
 	{
@@ -1296,7 +1296,7 @@ void BLEU::preprocessingModifyItemWidth()
 /*
 section 5.1 lower bounds plus upper bounds
 */
-void BLEU::bounds()
+void StripPacking::BLEU::bounds()
 {
 	int lb1 = this->LowerBound1();
 	int lb2 = this->LowerBound2();
@@ -1308,7 +1308,7 @@ void BLEU::bounds()
 	std::cout << "Lower bound is " << _bestLowerBound<< std::endl;
 }
 
-const int BLEU::LowerBound1() const
+const int StripPacking::BLEU::LowerBound1() const
 {
 	int sum = 0;
 	for (const auto& it : _processedItems)
@@ -1323,7 +1323,7 @@ Section 3.2 in the paper "An exact algorithm for the two-dimensional strip packi
 dual feasible functions 1, 2 ,3
 For understanding the concept of dual feasible functions, refer to the paper : "New  classes of fast lower  bounds  for  bin  packingproblems"
 */
-const int BLEU::LowerBound2() const
+const int StripPacking::BLEU::LowerBound2() const
 {
 	//dual feasible function 1:
 	int lowerBound = 0;
@@ -1370,7 +1370,7 @@ Alvarez-Vales R, Parreno F, Tamarit JM. A branch and bound algorithm for the str
 2009 Apr 1;31(2):431-59.
 Section 4.2.6
 */
-const int BLEU::LowerBound3() const
+const int StripPacking::BLEU::LowerBound3() const
 {
 	// step 1:
 	bool exitFlag = false;
@@ -1446,7 +1446,7 @@ const int BLEU::LowerBound3() const
 Section 5.1 
 Solve a noncontiguous packing problem (NCBP)
 */
-const int BLEU::LowerBound4()const 
+const int StripPacking::BLEU::LowerBound4()const
 {
 	std::vector<int> allWidths;
 	int colIdx = 0;
@@ -1557,7 +1557,7 @@ const int BLEU::LowerBound4()const
 /*
 solve the root node of the parallel machine scheduling with contiguous constraints
 */
-const int BLEU::LowerBound5()const
+const int StripPacking::BLEU::LowerBound5()const
 {
 	int maxHeight = _bestLowerBound - _processedH;
 	std::map<int, std::set<int>> mapPosWidth, mapPosHeight;
@@ -1585,7 +1585,7 @@ const int BLEU::LowerBound5()const
 if it should be rotated then rotate the instance, if not do nothing
 */
 
-const bool BLEU::ifRotateInstance(const int t_binHeight) const
+const bool StripPacking::BLEU::ifRotateInstance(const int t_binHeight) const
 {
 	int sumH = 0;
 	int sumW = 0;
@@ -1602,7 +1602,7 @@ const bool BLEU::ifRotateInstance(const int t_binHeight) const
 }
 
 
-void BLEU::rotateInstance(std::vector<const item*>& t_Items, int& t_binWidth, int& t_binHeight) const
+void StripPacking::BLEU::rotateInstance(std::vector<const item*>& t_Items, int& t_binWidth, int& t_binHeight) const
 {
 	for (const auto& it : t_Items)
 	{
@@ -1624,7 +1624,7 @@ void BLEU::rotateInstance(std::vector<const item*>& t_Items, int& t_binWidth, in
 
 
 
-const double BLEU::DualFeasibleFunction1(const int t_alpha, const int t_width) const
+const double StripPacking::BLEU::DualFeasibleFunction1(const int t_alpha, const int t_width) const
 {
 	double tmp = (t_alpha + 1.0)*((double(t_width) / _processedW));
 	double intPart;
@@ -1635,7 +1635,7 @@ const double BLEU::DualFeasibleFunction1(const int t_alpha, const int t_width) c
 }
 
 
-const double BLEU::DualFeasibleFunction2(const int t_alpha, const int t_width) const
+const double StripPacking::BLEU::DualFeasibleFunction2(const int t_alpha, const int t_width) const
 {
 	if (t_width > _processedW - t_alpha)
 		return _processedW;
@@ -1647,18 +1647,18 @@ const double BLEU::DualFeasibleFunction2(const int t_alpha, const int t_width) c
 	}
 }
 
-const	 double BLEU::DualFeasibleFunction3(const int t_alpha, const int t_width) const
+const	 double StripPacking::BLEU::DualFeasibleFunction3(const int t_alpha, const int t_width) const
 {
 	if (t_width > (_processedW / 2.0))
 		return 2 * (std::floor(_processedW / double(t_alpha)) - std::floor((_processedW - t_width) / double(t_alpha)));
-	if (std::abs(t_width - (_processedW / 2.0)) < BLEU::tolerance)
+	if (std::abs(t_width - (_processedW / 2.0)) < StripPacking::BLEU::tolerance)
 		return std::floor(_processedW / double(t_alpha));
 	if (t_width < (_processedW / 2.0))
 		return 2 * std::floor(t_width / double(t_alpha));
 }
 
 
-void BLEU::dumpSolution(const char* file_name) const
+void StripPacking::BLEU::dumpSolution(const char* file_name) const
 {
 	std::ofstream ofs(file_name);
 	std::ostringstream ss;
@@ -1682,7 +1682,7 @@ void BLEU::dumpSolution(const char* file_name) const
 	ofs.close();
 }
 
-void BLEU::dumpSolution(const char* file_name,const std::vector<const item*>& t_Items,
+void StripPacking::BLEU::dumpSolution(const char* file_name,const std::vector<const item*>& t_Items,
 	const std::vector<coordinate>& t_Solution) const
 {
 	std::ofstream ofs(file_name);
