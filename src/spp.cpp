@@ -146,7 +146,6 @@ double StripPacking::solve(const std::vector<const StripPacking::item*>& t_allIt
 	cplex.setParam(IloCplex::Param::MIP::Strategy::Probe, 3);
 	cplex.setParam(IloCplex::Param::Preprocessing::Symmetry, 5);
 	cplex.solve();
-	std::cout << "the status of the solver is " << cplex.getStatus();
 	double result = cplex.getObjValue();
 	env.end();
 	return result;

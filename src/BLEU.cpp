@@ -64,7 +64,6 @@ int StripPacking::BLEU::takeOff()
 	{
 	case false:
 	{
-		//std::cout<<"result of the b&b "<<this->branchAndBound()<<std::endl;
 		double elapsedTimeBB = 0.0;
 		double elapsedTimeBD = 0.0;
 		int increment = 0;
@@ -81,17 +80,13 @@ int StripPacking::BLEU::takeOff()
 			auto rotate = this->ifRotateInstance(binHeight);
 			if (rotate)
 			{
-				std::cout << "rotate \n";
 				this->rotateInstance(Items, binWidth, binHeight);
 			}
 			auto start = std::chrono::high_resolution_clock::now();
 			auto bbStatus = this->branchAndBound(Items, binWidth, binHeight);
 			elapsedTimeBB += (std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now() - start)).count() / 1000000.0;
-			std::cout << "\nresult of the b&b " << bbStatus << std::endl;
 			if (bbStatus == solutionStatus::feasible)
 			{
-				std::cout << "The B&B solution is " << _bestLowerBound + increment << std::endl;
-				std::cout << "\t the algorithm took as long as " << elapsedTimeBB << std::endl;
 				this->releaseTmpItems(Items);
 				break;
 			}
@@ -101,8 +96,6 @@ int StripPacking::BLEU::takeOff()
 			//std::cout << "result of the combinatorial benders is  " << status << "the height is "<<binHeight + _processedH<<std::endl;
 			if (status == solutionStatus::feasible)
 			{
-				std::cout << "The benders solution is " << _bestLowerBound + increment << std::endl;
-				std::cout << "\t the algorithm took as long as " << elapsedTimeBD << std::endl;
 				this->releaseTmpItems(Items);
 				break;
 			}
@@ -132,17 +125,14 @@ int StripPacking::BLEU::takeOff()
 		auto rotate = this->ifRotateInstance(binHeight);
 		if (rotate)
 		{
-			std::cout << "rotate \n";
 			this->rotateInstance(Items, binWidth, binHeight);
 		}
 		auto start = std::chrono::high_resolution_clock::now();
 		auto bbStatus = this->branchAndBound(Items, binWidth, binHeight);
 		elapsedTimeBB += (std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now() - start)).count() / 1000000.0;
-		std::cout << "\nresult of the b&b " << bbStatus << std::endl;
 		if (bbStatus == solutionStatus::feasible)
 		{
 			this->releaseTmpItems(Items);
-			std::cout << "\nthe b& b algorithm took " << elapsedTimeBB;
 			return _trialHeight;
 			break;
 		}
@@ -153,14 +143,12 @@ int StripPacking::BLEU::takeOff()
 		if (status == solutionStatus::feasible)
 		{
 			this->releaseTmpItems(Items);
-			std::cout << "\nthe Benders algorithm took " << elapsedTimeBD;
 			return _trialHeight;
 			break;
 		}
 		else
 		{
 			this->releaseTmpItems(Items);
-			std::cout << "\nthe Benders algorithm took " << elapsedTimeBD;
 			return _trialHeight + increment;
 		}
 		break;
@@ -845,7 +833,6 @@ const StripPacking::solutionStatus StripPacking::BLEU::combinatorialBenders(cons
 	cplex.setParam(IloCplex::Param::Preprocessing::Reduce, 3);
 	cplex.setParam(IloCplex::Param::MIP::Strategy::Probe, 3);
 	cplex.setParam(IloCplex::Param::Preprocessing::Symmetry, 5);
-	std::cout << "the bin height is " << t_binHeight << std::endl;
 	while (true)
 	{
 	   // cplex.exportModel("spp.lp");
@@ -869,12 +856,10 @@ const StripPacking::solutionStatus StripPacking::BLEU::combinatorialBenders(cons
 			}
 			else
 			{ 
-				std::cout << "\n y check fails"<<std::endl;
 				//// add a combinatorial cut
 				const std::vector<std::vector<int>> subsetItems = this->findSubset(t_binHeight, t_binWidth, t_Items, coordinates, allItemsMap);
 				for (size_t i = 0; i < subsetItems.size(); ++i)
 				{
-					std::cout << "\n adding combinatorial benders cuts......." << std::endl;
 					std::vector<IloNumVar> selectedVars;
 					for (const auto& it : subsetItems[i])
 					{
@@ -937,7 +922,6 @@ const std::vector<std::vector<int>> StripPacking::BLEU::findSubset(const int t_b
 const std::vector<std::vector<int>> StripPacking::BLEU::verticalCuts(const int t_binHeight, const int t_binWidth,
 	const std::vector<const item*>& t_allItems, const std::vector<coordinate>& t_Cords) const
 {
-	std::cout << "\n entering verticalCuts" << std::endl;
 	std::stack<std::vector<int>> startEndColumns;
 	std::vector<int> initialInterval(2, -1);
 	initialInterval[0] = 0;
@@ -953,7 +937,6 @@ const std::vector<std::vector<int>> StripPacking::BLEU::verticalCuts(const int t
 		if (!nextIntervals.empty())
 			for (const auto& it : nextIntervals) startEndColumns.push(it);
 	}
-	std::cout << "\n exiting verticalCuts" << std::endl;
 	return allSubsets;
 }
 
@@ -1089,7 +1072,6 @@ const std::vector<int> StripPacking::BLEU::getColumnsFromSubset(const std::vecto
 std::vector<std::vector<int>> StripPacking::BLEU::findSubSetSecondStep(const int t_binWidth, const int t_binHeight,const std::vector<std::vector<int>>& t_currentSubSets,
 	const std::map<int, const item*>& t_allItemsMap, const std::vector<coordinate>& t_Cords) const
 {
-	std::cout << "\nenter the second step..." << std::endl;
 	std::vector<std::vector<int>> result;
 	for (const auto& it : t_currentSubSets)
 	{
@@ -1101,7 +1083,6 @@ std::vector<std::vector<int>> StripPacking::BLEU::findSubSetSecondStep(const int
 		int rightCol = columns[1];
 		for (int i = startCol; i < rightCol; ++i)
 		{
-			std::cout << "from the left:\n";
 			auto removedItems = this->getRemovedItems(i, processingsubset, t_Cords, t_allItemsMap);
 			if (removedItems.empty()) continue;
 			std::vector<const item*> itemsYcheck;
@@ -1115,8 +1096,6 @@ std::vector<std::vector<int>> StripPacking::BLEU::findSubSetSecondStep(const int
 		rightCol = columns[1];
 		for (int i = rightCol; i > startCol; --i)
 		{
-			std::cout << "from the right:\n";
-			std::cout << "column" << i << std::endl;
 			auto removedItems = this->getRemovedItems(i, processingsubset, t_Cords, t_allItemsMap);
 			if (removedItems.empty()) continue;
 			std::vector<const item*> itemsYcheck;
@@ -1305,7 +1284,6 @@ void StripPacking::BLEU::bounds()
 	int lb3 = this->LowerBound3();
 	int lb5 = this->LowerBound5();
 	_bestLowerBound = std::max({ _bestLowerBound, lb3, lb5 });
-	std::cout << "Lower bound is " << _bestLowerBound<< std::endl;
 }
 
 const int StripPacking::BLEU::LowerBound1() const
@@ -1573,7 +1551,6 @@ const int StripPacking::BLEU::LowerBound5()const
 	auto lb = solve(_processedItems, mapPosWidth, mapPosHeight, false) + _processedH;
 	if (std::floor(lb) - lb < BLEU::tolerance) lb = std::floor(lb);
 	else lb = std::ceil(lb);
-	std::cout << "the lower bound 5 is " <<lb;
 	return lb;
 	
 }
