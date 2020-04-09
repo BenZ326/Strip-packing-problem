@@ -19,9 +19,10 @@ public:
 	static int BBMaxExplNodesPerPack;				// maximal number of explored nodes for perfect packing (for the BB algorithm)
 	static int BBMaxExplNodesNonPerPack;		// maximal number of explored nodes for non-perfect packing (for the BB algorithm)
 	static int interestingStatics;
+	static int ycheckExplNode;
 public:
-	BLEU(const std::vector<const item*>& t_items, const int t_W, const int t_TrialHeight);
-	BLEU(const std::vector<const item*>& t_items, const int t_W);
+	BLEU(const std::vector<const item*>& t_items, const int t_W, const int t_TrialHeight, const int t_timeLimit);
+	BLEU(const std::vector<const item*>& t_items, const int t_W, const int t_timeLimit);
 	void preprocessing();
 	void bounds();
 	int takeOff();			// start to solve
@@ -240,7 +241,7 @@ private:
 	std::vector<coordinate> _finalSolution;
 	const bool _evaluatedMode;			// if it is true, then the algorithm starts from a given height, the mission is to determine if the height is feasible
 
-
+	const int _timeLimit;
 
 
 };

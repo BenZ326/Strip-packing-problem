@@ -12,12 +12,14 @@ int StripPacking::BLEU::bigNumber = 999999;
 int StripPacking::BLEU::BBMaxExplNodesPerPack = 100000;
 int StripPacking::BLEU::BBMaxExplNodesNonPerPack = 200000;
 int StripPacking::BLEU::interestingStatics = 0;
+int StripPacking::BLEU::ycheckExplNode = 2 * 1000000;
 
 /*
 only invoke when it's in evaluatedMode
 */
-StripPacking::BLEU::BLEU(const std::vector<const item*>& t_items, const int t_W, const int t_TrialHeight)
-	:_allItems(t_items),_W(t_W), _trialHeight(t_TrialHeight), _evaluatedMode(true)
+StripPacking::BLEU::BLEU(const std::vector<const item*>& t_items, const int t_W, const int t_TrialHeight,
+	const int t_timeLimit)
+	:_allItems(t_items),_W(t_W), _trialHeight(t_TrialHeight), _evaluatedMode(true), _timeLimit(t_timeLimit)
 {
 	// sort the items by the nonincreasing of width and breaking ties by nonincreasing height
 	std::sort(_allItems.begin(), _allItems.end(), compareItemByWidth);
@@ -27,8 +29,8 @@ StripPacking::BLEU::BLEU(const std::vector<const item*>& t_items, const int t_W,
 	
 }
 
-StripPacking::BLEU::BLEU(const std::vector<const item*>& t_items, const int t_W)
-	:_allItems(t_items), _W(t_W), _evaluatedMode(false)
+StripPacking::BLEU::BLEU(const std::vector<const item*>& t_items, const int t_W, const int t_timeLimit)
+	:_allItems(t_items), _W(t_W), _evaluatedMode(false), _timeLimit(t_timeLimit)
 {
 	// sort the items by the nonincreasing of width and breaking ties by nonincreasing height
 	std::sort(_allItems.begin(), _allItems.end(), compareItemByWidth);
@@ -211,7 +213,7 @@ StripPacking::solutionStatus StripPacking::BLEU::yCheckEnumerationTree(const std
 		if (this->yCheckBounding(currentNode))	continue;
 		exploreNodes++;
 		this->yCheckMakeBranch(currentNode, yEnTree);
-		if (exploreNodes > 2 * 10000000) 	return solutionStatus::pending;
+		if (exploreNodes > StripPacking::BLEU::ycheckExplNode) 	return solutionStatus::pending;
 	}
 	return solutionStatus::infeasible;
 }
@@ -833,10 +835,27 @@ const StripPacking::solutionStatus StripPacking::BLEU::combinatorialBenders(cons
 	cplex.setParam(IloCplex::Param::Preprocessing::Reduce, 3);
 	cplex.setParam(IloCplex::Param::MIP::Strategy::Probe, 3);
 	cplex.setParam(IloCplex::Param::Preprocessing::Symmetry, 5);
+	auto start = std::chrono::high_resolution_clock::now();
+	double elapsedTimeBD = 0.0;
 	while (true)
 	{
-	   // cplex.exportModel("spp.lp");
+		elapsedTimeBD = (std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now() - start)).count() / 1000000.0;
+		if (elapsedTimeBD > _timeLimit)
+		{
+			env.end();
+			t_increment += 1;
+			return solutionStatus::pending;
+		}
+		cplex.setParam(IloCplex::Param::TimeLimit, _timeLimit- elapsedTimeBD);
 		cplex.solve();
+		if (cplex.getStatus() == IloAlgorithm::Status::Unknown)
+		{
+			env.end();
+			t_increment += 1;
+			return solutionStatus::pending;
+		}
+
+	   // cplex.exportModel("spp.lp");
 		if (cplex.getStatus() == IloAlgorithm::Status::Infeasible)
 		{
 
@@ -865,21 +884,15 @@ const StripPacking::solutionStatus StripPacking::BLEU::combinatorialBenders(cons
 					{
 						const item* tmp = allItemsMap.find(it)->second;
 						selectedVars.push_back(variables[tmp->idxHelper][coordinates[tmp->idxHelper].x]);
-						/*std::cout << "variable " << variables[tmp->idxHelper][coordinates[tmp->idxHelper].x].getName() << " = "
-							<< cplex.getValue(variables[tmp->idxHelper][coordinates[tmp->idxHelper].x]) << std::endl;*/
 					}
 					this->addBendersCut(cplex, t_Items, variables, selectedVars);
 				}
-				//env.end();
-				//t_increment += 1;
-				//return solutionStatus::infeasible;
 			}
 		}
 		else
 		{
-			std::cout << "obj is ..."<<obj;
 			env.end();
-			t_increment += (obj - t_binHeight > 1) ? (obj - t_binHeight) : 1;
+			t_increment += 1;
 			return solutionStatus::infeasible;
 		}
 	}
