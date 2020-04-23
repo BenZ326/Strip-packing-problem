@@ -9,11 +9,11 @@
 
 double StripPacking::BLEU::tolerance = 0.0001;
 int StripPacking::BLEU::bigNumber = 999999;
-int StripPacking::BLEU::BBMaxExplNodesPerPack = 100000;
-int StripPacking::BLEU::BBMaxExplNodesNonPerPack = 200000;
+int StripPacking::BLEU::BBMaxExplNodesPerPack = 50000;
+int StripPacking::BLEU::BBMaxExplNodesNonPerPack = 50000;
 int StripPacking::BLEU::interestingStatics = 0;
 int StripPacking::BLEU::ycheckExplNode = 2 * 1000000;
-
+bool StripPacking::BLEU::optimalityCheck = true;
 /*
 only invoke when it's in evaluatedMode
 */
@@ -21,6 +21,7 @@ StripPacking::BLEU::BLEU(const std::vector<const item*>& t_items, const int t_W,
 	const int t_timeLimit)
 	:_allItems(t_items),_W(t_W), _trialHeight(t_TrialHeight), _evaluatedMode(true), _timeLimit(t_timeLimit)
 {
+	StripPacking::BLEU::optimalityCheck = true;
 	// sort the items by the nonincreasing of width and breaking ties by nonincreasing height
 	std::sort(_allItems.begin(), _allItems.end(), compareItemByWidth);
 	this->reassignItemsIdx();
@@ -32,6 +33,7 @@ StripPacking::BLEU::BLEU(const std::vector<const item*>& t_items, const int t_W,
 StripPacking::BLEU::BLEU(const std::vector<const item*>& t_items, const int t_W, const int t_timeLimit)
 	:_allItems(t_items), _W(t_W), _evaluatedMode(false), _timeLimit(t_timeLimit)
 {
+	StripPacking::BLEU::optimalityCheck = true;
 	// sort the items by the nonincreasing of width and breaking ties by nonincreasing height
 	std::sort(_allItems.begin(), _allItems.end(), compareItemByWidth);
 	this->reassignItemsIdx();
@@ -51,6 +53,36 @@ void StripPacking::BLEU::reassignItemsIdx()
 	}
 }
 
+
+
+const StripPacking::solutionStatus StripPacking::BLEU::evaluate()
+{
+	if (_processedItems.empty()) return solutionStatus::feasible;
+	if (_bestLowerBound > _trialHeight) return solutionStatus::infeasible;
+	int binWidth = _processedW;
+	int binHeight = _trialHeight - _processedH;
+	int increment = 0;
+	std::vector<const item*> Items;
+	for (const auto& it : _processedItems)
+	{
+		const item* tmp = new item(it->idx, it->width, it->height, it->idxHelper);
+		Items.push_back(tmp);
+	}
+	auto rotate = this->ifRotateInstance(binHeight);
+	if (rotate)
+	{
+		this->rotateInstance(Items, binWidth, binHeight);
+	}
+	auto bbStatus = this->branchAndBound(Items, binWidth, binHeight);
+	if (bbStatus != solutionStatus::pending)
+	{
+		this->releaseTmpItems(Items);
+		return bbStatus;
+	}
+	solutionStatus status = this->combinatorialBenders(Items, binWidth, binHeight, increment);
+	this->releaseTmpItems(Items);
+	return status;
+}
 /*
 There are two modes, one is the to solve an SPP algorithm, e.g. minimizing the height
 
@@ -150,6 +182,7 @@ int StripPacking::BLEU::takeOff()
 		}
 		else
 		{
+			if (status == solutionStatus::pending) StripPacking::BLEU::optimalityCheck = false;
 			this->releaseTmpItems(Items);
 			return _trialHeight + increment;
 		}
@@ -213,7 +246,11 @@ StripPacking::solutionStatus StripPacking::BLEU::yCheckEnumerationTree(const std
 		if (this->yCheckBounding(currentNode))	continue;
 		exploreNodes++;
 		this->yCheckMakeBranch(currentNode, yEnTree);
-		if (exploreNodes > StripPacking::BLEU::ycheckExplNode) 	return solutionStatus::pending;
+		if (exploreNodes > StripPacking::BLEU::ycheckExplNode)
+		{
+			StripPacking::BLEU::optimalityCheck = false;
+			return solutionStatus::pending;
+		}
 	}
 	return solutionStatus::infeasible;
 }
@@ -1364,6 +1401,7 @@ Section 4.2.6
 const int StripPacking::BLEU::LowerBound3() const
 {
 	// step 1:
+	if (_processedItems.empty()) return _bestLowerBound;
 	bool exitFlag = false;
 	int result;
 	for (int k = 0; !exitFlag; k++)
@@ -1619,7 +1657,7 @@ const double StripPacking::BLEU::DualFeasibleFunction1(const int t_alpha, const 
 	double tmp = (t_alpha + 1.0)*((double(t_width) / _processedW));
 	double intPart;
 	if (std::modf(tmp, &intPart) < BLEU::tolerance) // if tmp is an integer
-		return (std::round(tmp));
+		return t_width;
 	else
 		return (std::floor(tmp)*(_processedW / double(t_alpha)));
 }
@@ -1662,11 +1700,11 @@ void StripPacking::BLEU::dumpSolution(const char* file_name) const
 	}
 	ofs.close();
 	ofs.open("Rectangle.output");
-	for (size_t i = 0; i < _processedItems.size(); ++i)
+	for (size_t i = 0; i < _allItems.size(); ++i)
 	{
 		ss.str("");
 		ss.clear();
-		ss << _processedItems[i]->idx << "," << _processedItems[i]->width << "," << _processedItems[i]->height << "\n";
+		ss << _allItems[i]->idx << "," << _allItems[i]->width << "," << _allItems[i]->height << "\n";
 		ofs << ss.str();
 	}
 	ofs.close();

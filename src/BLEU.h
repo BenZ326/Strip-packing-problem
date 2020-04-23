@@ -20,11 +20,13 @@ public:
 	static int BBMaxExplNodesNonPerPack;		// maximal number of explored nodes for non-perfect packing (for the BB algorithm)
 	static int interestingStatics;
 	static int ycheckExplNode;
+	static bool optimalityCheck;			// if any subroutine reaches time limit, it becomes false; 
 public:
 	BLEU(const std::vector<const item*>& t_items, const int t_W, const int t_TrialHeight, const int t_timeLimit);
 	BLEU(const std::vector<const item*>& t_items, const int t_W, const int t_timeLimit);
 	void preprocessing();
 	void bounds();
+	const solutionStatus evaluate();
 	int takeOff();			// start to solve
 	void dumpSolution(const char* file_name = "Solution.output") const;
 	void dumpSolution(const char* file_name, const std::vector<const item*>& t_Items,
