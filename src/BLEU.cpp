@@ -9,10 +9,10 @@
 
 double StripPacking::BLEU::tolerance = 0.0001;
 int StripPacking::BLEU::bigNumber = 999999;
-int StripPacking::BLEU::BBMaxExplNodesPerPack = 50000;
-int StripPacking::BLEU::BBMaxExplNodesNonPerPack = 50000;
+int StripPacking::BLEU::BBMaxExplNodesPerPack = 10000000;
+int StripPacking::BLEU::BBMaxExplNodesNonPerPack = 80000;
 int StripPacking::BLEU::interestingStatics = 0;
-int StripPacking::BLEU::ycheckExplNode = 2 * 1000000;
+int StripPacking::BLEU::ycheckExplNode = 10000000;
 bool StripPacking::BLEU::optimalityCheck = true;
 /*
 only invoke when it's in evaluatedMode
@@ -68,11 +68,11 @@ const StripPacking::solutionStatus StripPacking::BLEU::evaluate()
 		const item* tmp = new item(it->idx, it->width, it->height, it->idxHelper);
 		Items.push_back(tmp);
 	}
-	auto rotate = this->ifRotateInstance(binHeight);
-	if (rotate)
-	{
-		this->rotateInstance(Items, binWidth, binHeight);
-	}
+	//auto rotate = this->ifRotateInstance(binHeight);
+	//if (rotate)
+	//{
+	//	this->rotateInstance(Items, binWidth, binHeight);
+	//}
 	auto bbStatus = this->branchAndBound(Items, binWidth, binHeight);
 	if (bbStatus != solutionStatus::pending)
 	{
