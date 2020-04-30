@@ -1,6 +1,7 @@
 #pragma once
 #include "spp.h"
 #include <stack>
+#include "sl/code/struct2d.h"
 class itemPieceWidth;
 namespace StripPacking
 {
@@ -230,6 +231,9 @@ std::vector<int> attemptRemove(const int t_binHeight, const int t_binWidth, cons
 Combinatorial Benders---------------------------------------------------end
 */
 
+
+// get upper bound --------------------------------------------------
+void calculateUB();
 private:
 	std::vector<const item*> _allItems;
 	std::vector<const itemPieceWidth*> _allItemPiecesWidths;
@@ -239,6 +243,7 @@ private:
 	int _processedH;
 	int _processedW;
 	int _bestLowerBound;
+	int _upperBound;
 	int _trialHeight;			// the current height being tried
 	std::vector<coordinate> _finalSolution;
 	const bool _evaluatedMode;			// if it is true, then the algorithm starts from a given height, the mission is to determine if the height is feasible
@@ -248,4 +253,10 @@ private:
 
 };
 
+
+
+strip_t createData4JFCAlg(const std::vector<const item*>& t_items,
+	const int t_binWidth, const int t_Height);
+
 }
+

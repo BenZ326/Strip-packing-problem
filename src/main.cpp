@@ -17,8 +17,14 @@ int main()
 		std::cout << filePath;
 		std::vector<const StripPacking::item*> allItems;
 		int W = readData(filePath, allItems);
-		StripPacking::BLEU alg(allItems,W, 40, 5);
-		alg.evaluate();
+		StripPacking::BLEU alg(allItems,W, 5);
+		int h = alg.takeOff();
+		std::cout << "preprocess takes " << XYZTimer::timerPreprocess
+			<< "," << "B&B takes " << XYZTimer::timerBB
+			<<","<<"BD takes "<<XYZTimer::timerBD
+			<<","<<"Metaheuristic takes "<<XYZTimer::timerMetaH<<std::endl;
+		std::cout << "heigh is " << h << std::endl;
+		XYZTimer::reset();
 		//std::cout<<"possible height is" <<alg.takeOff()<<std::endl;
 		for (auto it = allItems.begin(); it != allItems.end(); ++it)
 			delete (*it);

@@ -1,5 +1,6 @@
 #include "util.h"
 #include <iostream>
+
 int myRandom::counter = 0;
 int myRandom::fCounter = 0;
 std::mt19937 myRandom::myEngine(std::chrono::system_clock::now().time_since_epoch().count());
@@ -81,4 +82,18 @@ int subSetSum(const std::vector<int>& t_v, const int t_limit)
 	for (size_t i = 0; i < t_v.size(); ++i) delete values[i];
 	delete values;
 	return result;
+}
+
+
+
+double XYZTimer::timerPreprocess;
+double XYZTimer::timerBB;
+double XYZTimer::timerBD;
+double XYZTimer::timerMetaH;
+void XYZTimer::reset()
+{
+	XYZTimer::timerBB = 0.0;
+	XYZTimer::timerPreprocess = 0.0;
+	XYZTimer::timerMetaH = 0.0;
+	XYZTimer::timerBD = 0.0;
 }
