@@ -25,11 +25,8 @@ StripPacking::BLEU::BLEU(const std::vector<const item*>& t_items, const int t_W,
 	// sort the items by the nonincreasing of width and breaking ties by nonincreasing height
 	std::sort(_allItems.begin(), _allItems.end(), compareItemByWidth);
 	this->reassignItemsIdx();
-	auto startClock = std::chrono::high_resolution_clock::now();
 	this->preprocessing();
 	this->bounds();
-	auto durationClock = std::chrono::high_resolution_clock::now() - startClock;
-	XYZTimer::timerPreprocess += std::chrono::duration_cast<std::chrono::milliseconds>(durationClock).count() / 1000.0;
 }
 
 StripPacking::BLEU::BLEU(const std::vector<const item*>& t_items, const int t_W, const int t_timeLimit)
@@ -60,8 +57,6 @@ const StripPacking::solutionStatus StripPacking::BLEU::evaluate()
 {
 	if (_processedItems.empty()) return solutionStatus::feasible;
 	if (_bestLowerBound > _trialHeight) return solutionStatus::infeasible;
-	this->calculateUB();
-	if (_upperBound <= _trialHeight - _processedH) return solutionStatus::feasible;
 	int binWidth = _processedW;
 	int binHeight = _trialHeight - _processedH;
 	int increment = 0;
@@ -76,18 +71,14 @@ const StripPacking::solutionStatus StripPacking::BLEU::evaluate()
 	std::vector<const item*> Items;
 	for (const auto& it : tmpItems) Items.push_back(std::move(it));
 	// end preprocess
-	auto start = std::chrono::high_resolution_clock::now();
 	auto status = this->branchAndBound(Items, binWidth, binHeight);
-	XYZTimer::timerBB += std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::high_resolution_clock::now() - start).count() / 1000.0;
 	BLEU::algStatus = (BLEU::nodeLimitFlag && status == solutionStatus::infeasible) ? algorithmStatus::approximate : BLEU::algStatus;
 	if (status != solutionStatus::pending && BLEU::algStatus == algorithmStatus::exact)
 	{
 		this->releaseTmpItems(Items);
 		return status;
 	}
-	start = std::chrono::high_resolution_clock::now();
 	status = this->combinatorialBenders(Items, binWidth, binHeight, increment);
-	XYZTimer::timerBD += std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::high_resolution_clock::now() - start).count() / 1000.0;
 	BLEU::algStatus = (BLEU::nodeLimitFlag && status == solutionStatus::infeasible) ? algorithmStatus::approximate : BLEU::algStatus;
 	this->releaseTmpItems(Items);
 	return status;
@@ -102,7 +93,6 @@ else return the next possible height, implying the the height is infeasible for 
 */
 int StripPacking::BLEU::takeOff()
 {
-	this->calculateUB();
 	double elapsedTimeBB = 0.0;
 	double elapsedTimeBD = 0.0;
 	int increment = 0;
@@ -110,7 +100,6 @@ int StripPacking::BLEU::takeOff()
 	{
 		int binWidth = _processedW;
 		int binHeight = _bestLowerBound - _processedH + increment;
-		if (_upperBound <= binHeight) return _bestLowerBound + increment;
 		std::vector<item*> tmpItems;
 		for (const auto& it : _processedItems)
 		{
@@ -131,7 +120,6 @@ int StripPacking::BLEU::takeOff()
 		auto start = std::chrono::high_resolution_clock::now();
 		auto bbStatus = this->branchAndBound(Items, binWidth, binHeight);
 		elapsedTimeBB += (std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now() - start)).count() / 1000000.0;
-		XYZTimer::timerBB = elapsedTimeBB;
 		BLEU::algStatus = (BLEU::nodeLimitFlag && bbStatus == solutionStatus::infeasible) ? algorithmStatus::approximate : BLEU::algStatus;
 		if (bbStatus == solutionStatus::feasible && BLEU::algStatus == algorithmStatus::exact)
 		{
@@ -143,7 +131,6 @@ int StripPacking::BLEU::takeOff()
 		elapsedTimeBD += (std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now() - start)).count() / 1000000.0;
 		//std::cout << "result of the combinatorial benders is  " << status << "the height is "<<binHeight + _processedH<<std::endl;
 		BLEU::algStatus = (BLEU::nodeLimitFlag && status == solutionStatus::infeasible) ? algorithmStatus::approximate : BLEU::algStatus;
-		XYZTimer::timerBD = elapsedTimeBD;
 		if (status == solutionStatus::feasible)
 		{
 			this->releaseTmpItems(Items);
@@ -1766,41 +1753,6 @@ void StripPacking::BLEU::dumpSolution(const char* file_name, const std::vector<i
 	}
 	ofs.close();
 }
-
-
-void StripPacking::BLEU::calculateUB()
-{
-	auto strip = StripPacking::createData4JFCAlg(this->_processedItems, this->_processedW, _bestLowerBound - _processedH);
-	auto startClock = std::chrono::high_resolution_clock::now();
-	_upperBound = un_spp_h2_solve(&strip);
-	//_upperBound = un_spp_h2_quick_solve(&strip);
-	auto durationClock = std::chrono::high_resolution_clock::now() - startClock;
-	XYZTimer::timerMetaH += std::chrono::duration_cast<std::chrono::milliseconds>(durationClock).count() / 1000.0;
-	
-	strip_free(&strip);
-}
-
-strip_t StripPacking::createData4JFCAlg(const std::vector<const item*>& t_items,
-	const int t_binWidth, const int t_Height)
-{
-	strip_t strip;
-	strip_init_wh(&strip, t_binWidth, t_Height, t_items.size());
-	int i = 0;
-	for (const auto& it : t_items)
-	{
-		strip.items[i].origin_id = i;
-		strip.items[i].no = i;
-		strip.items[i].w = it->width;
-		strip.items[i].h = it->height;
-		i++;
-	}
-	strip.nb = t_items.size();
-	strip.seq_count = 1;
-	strip_init_phase2(&strip);
-	return strip;
-}
-
-
 // helper functions
 const std::set<int> StripPacking::BLEU::getItemsByCol(const int t_Col, 
 	const std::vector<item*>& t_Items, const std::vector<coordinate>& t_Cords) const

@@ -11,8 +11,6 @@ Fully reproduce the paper: Combinatorial Benders' Cuts for the strip packing pro
 */
 class BLEU
 {
-
-
 	// global parameters
 public:
 	static double tolerance;
@@ -250,10 +248,6 @@ Combinatorial Benders---------------------------------------------------end
 */
 
 
-// get upper bound --------------------------------------------------
-void calculateUB();
-
-
 //---- helper functions
 /* t_Cords respects the idxHelper , return the set of idxHelpers of items  that occupy the column t_Col*/
 const std::set<int> getItemsByCol(const int t_Col, const std::vector<item*>& t_Items, const std::vector<coordinate>& t_Cords) const;
@@ -266,20 +260,11 @@ private:
 	int _processedH;
 	int _processedW;
 	int _bestLowerBound;
-	int _upperBound;
 	int _trialHeight;			// the current height being tried
 	std::vector<coordinate> _finalSolution;
 	const bool _evaluatedMode;			// if it is true, then the algorithm starts from a given height, the mission is to determine if the height is feasible
-
 	const int _timeLimit;
 
-
 };
-
-
-
-strip_t createData4JFCAlg(const std::vector<const item*>& t_items,
-	const int t_binWidth, const int t_Height);
-
 }
 

@@ -19,15 +19,6 @@ int main()
 		int W = readData(filePath, allItems);
 		StripPacking::BLEU alg(allItems,W,40,1.5);
 		auto status = alg.evaluate();
-		//auto status = alg.evaluate();
-		std::cout << "preprocess takes " << XYZTimer::timerPreprocess
-			<< "," << "B&B takes " << XYZTimer::timerBB
-			<<","<<"BD takes "<<XYZTimer::timerBD
-			<<","<<"Metaheuristic takes "<<XYZTimer::timerMetaH<<std::endl;
-		std::cout << "algorithm optimality is ..." << StripPacking::BLEU::algStatus<< std::endl;
-		std::cout << "status is " << status << std::endl;
-		XYZTimer::reset();
-		//std::cout<<"possible height is" <<alg.takeOff()<<std::endl;
 		for (auto it = allItems.begin(); it != allItems.end(); ++it)
 			delete (*it);
 	}

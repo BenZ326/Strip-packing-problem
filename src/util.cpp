@@ -83,17 +83,3 @@ int subSetSum(const std::vector<int>& t_v, const int t_limit)
 	delete values;
 	return result;
 }
-
-
-
-double XYZTimer::timerPreprocess;
-double XYZTimer::timerBB;
-double XYZTimer::timerBD;
-double XYZTimer::timerMetaH;
-void XYZTimer::reset()
-{
-	XYZTimer::timerBB = 0.0;
-	XYZTimer::timerPreprocess = 0.0;
-	XYZTimer::timerMetaH = 0.0;
-	XYZTimer::timerBD = 0.0;
-}

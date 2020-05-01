@@ -126,16 +126,5 @@ Given a set of integers, return a subset of the integers so that the sum of the 
 int subSetSum(const std::vector<int>& t_v, const int t_limit);
 
 
-class XYZTimer
-{
-public:
-	static double timerPreprocess;
-	static double timerBB;
-	static double timerBD;
-	static double timerMetaH;
-	static void reset();
-
-};
-
 
 #endif
