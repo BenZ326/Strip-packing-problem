@@ -21,7 +21,8 @@ public:
 	static int BBMaxExplNodesNonPerPack;		// maximal number of explored nodes for non-perfect packing (for the BB algorithm)
 	static int interestingStatics;
 	static int ycheckExplNode;
-	static bool optimalityCheck;			// if any subroutine reaches time limit, it becomes false; 
+	static bool nodeLimitFlag;			// if y-check subroutine reaches node limit, it becomes true;
+	static algorithmStatus algStatus;
 public:
 	BLEU(const std::vector<const item*>& t_items, const int t_W, const int t_TrialHeight, const int t_timeLimit);
 	BLEU(const std::vector<const item*>& t_items, const int t_W, const int t_timeLimit);
@@ -32,7 +33,8 @@ public:
 	void dumpSolution(const char* file_name = "Solution.output") const;
 	void dumpSolution(const char* file_name, const std::vector<const item*>& t_Items,
 		const std::vector<coordinate>& t_Solution) const;
-	
+	void dumpSolution(const char* file_name, const std::vector<item*>& t_Items,
+		const std::vector<coordinate>& t_Solution) const;
 // algorithms
 protected:
 	const solutionStatus combinatorialBenders(const std::vector<const item*>& t_Items, const int t_binWidth,
@@ -44,6 +46,8 @@ protected:
 	void preprocessingFixItems();
 	void preprocessingReduceW();
 	void preprocessingModifyItemWidth();
+	void preprocessItemHeight(std::vector<item*>& t_items, 
+		const int t_binHeight, int& t_binWidth);			// only after the trial height is determined
 	// 5.1 preprocess the bounds
 	const int LowerBound1() const;			// 5.1 lower bound 1
 	const int LowerBound2() const;			// 5.2 lower bound 2
@@ -61,8 +65,8 @@ const	double DualFeasibleFunction3(const int t_alpha, const int t_width) const;
 
 
 // rotate instances
-void rotateInstance(std::vector<const item*>& t_Items, int& t_binWidth, int& t_binHeight) const;
-const bool ifRotateInstance(const int t_binHeight) const;
+void rotateInstance(std::vector<item*>& t_Items, int& t_binWidth, int& t_binHeight) const;
+const bool ifRotateInstance(const std::vector<item*>& t_items, const int t_binHeight, const int t_binWidth) const;
 /*
 The branch and bound algorithms----------------------------------------start
 */
@@ -128,8 +132,8 @@ std::vector<int> getNiche(const std::vector<int>& t_ColumnHeights) const;
 /*
 To preprocess all the items considered in the branch and bound tree to reduce the complexity of the further y-check problem 
 */
-const std::vector<const item*> preprocess4yCheck(const std::vector<const item*>& t_InterestItems, std::vector<coordinate>& t_Cords,
-	const int t_Height, const int t_Width) const;
+const std::vector<const item*> preprocess4yCheck(int& t_Width, const std::vector<const item*>& t_InterestItems, std::vector<coordinate>& t_Cords,
+	const int t_Height) const;
 
 const std::vector<item*> preprocessedFirst4yCheck(const std::vector<const item*>& t_InterestItems, 
 	std::vector<coordinate>& t_Cords, const int t_Width) const;
@@ -137,8 +141,11 @@ const std::vector<item*> preprocessedFirst4yCheck(const std::vector<const item*>
 void  preprocessedSecond4yCheck(std::vector<item*>& t_allItems,
 	std::vector<coordinate>& t_Cords, const int t_binWidth) const;
 
+/*
+The function would modify the bin width as well as the width for items
+*/
 void  preprocessedThird4yCheck(std::vector<item*>& t_allItems,
-	std::vector<coordinate>& t_Cords, const int t_binWidth) const;
+	std::vector<coordinate>& t_Cords, int& t_binWidth) const;
 /*
 // input: i, items in the left of i, coordinates, start column, right or left (true is left, false is right)
 // output: bool, change the items in the left of i
@@ -234,6 +241,11 @@ Combinatorial Benders---------------------------------------------------end
 
 // get upper bound --------------------------------------------------
 void calculateUB();
+
+
+//---- helper functions
+/* t_Cords respects the idxHelper , return the set of idxHelpers of items  that occupy the column t_Col*/
+const std::set<int> getItemsByCol(const int t_Col, const std::vector<item*>& t_Items, const std::vector<coordinate>& t_Cords) const;
 private:
 	std::vector<const item*> _allItems;
 	std::vector<const itemPieceWidth*> _allItemPiecesWidths;

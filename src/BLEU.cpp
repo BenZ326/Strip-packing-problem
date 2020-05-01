@@ -9,11 +9,12 @@
 #include "sl/code/un_2spp_h2.h"
 double StripPacking::BLEU::tolerance = 0.0001;
 int StripPacking::BLEU::bigNumber = 999999;
-int StripPacking::BLEU::BBMaxExplNodesPerPack = 80000;
-int StripPacking::BLEU::BBMaxExplNodesNonPerPack = 80000;
+int StripPacking::BLEU::BBMaxExplNodesPerPack = 10000000;
+int StripPacking::BLEU::BBMaxExplNodesNonPerPack = 10000;
 int StripPacking::BLEU::interestingStatics = 0;
-int StripPacking::BLEU::ycheckExplNode = 10000000;
-bool StripPacking::BLEU::optimalityCheck = true;
+int StripPacking::BLEU::ycheckExplNode = 10;
+bool StripPacking::BLEU::nodeLimitFlag = false;
+StripPacking::algorithmStatus StripPacking::BLEU::algStatus = StripPacking::algorithmStatus::exact;
 /*
 only invoke when it's in evaluatedMode
 */
@@ -21,7 +22,7 @@ StripPacking::BLEU::BLEU(const std::vector<const item*>& t_items, const int t_W,
 	const int t_timeLimit)
 	:_allItems(t_items),_W(t_W), _trialHeight(t_TrialHeight), _evaluatedMode(true), _timeLimit(t_timeLimit)
 {
-	StripPacking::BLEU::optimalityCheck = true;
+	StripPacking::BLEU::algStatus = StripPacking::algorithmStatus::exact;
 	// sort the items by the nonincreasing of width and breaking ties by nonincreasing height
 	std::sort(_allItems.begin(), _allItems.end(), compareItemByWidth);
 	this->reassignItemsIdx();
@@ -35,7 +36,7 @@ StripPacking::BLEU::BLEU(const std::vector<const item*>& t_items, const int t_W,
 StripPacking::BLEU::BLEU(const std::vector<const item*>& t_items, const int t_W, const int t_timeLimit)
 	:_allItems(t_items), _W(t_W), _evaluatedMode(false), _timeLimit(t_timeLimit)
 {
-	StripPacking::BLEU::optimalityCheck = true;
+	StripPacking::BLEU::algStatus = StripPacking::algorithmStatus::exact;
 	// sort the items by the nonincreasing of width and breaking ties by nonincreasing height
 	std::sort(_allItems.begin(), _allItems.end(), compareItemByWidth);
 	this->reassignItemsIdx();
@@ -61,27 +62,35 @@ const StripPacking::solutionStatus StripPacking::BLEU::evaluate()
 {
 	if (_processedItems.empty()) return solutionStatus::feasible;
 	if (_bestLowerBound > _trialHeight) return solutionStatus::infeasible;
+	this->calculateUB();
+	if (_upperBound <= _trialHeight - _processedH) return solutionStatus::feasible;
 	int binWidth = _processedW;
 	int binHeight = _trialHeight - _processedH;
 	int increment = 0;
-	std::vector<const item*> Items;
+	std::vector<item*> tmpItems;
 	for (const auto& it : _processedItems)
 	{
-		const item* tmp = new item(it->idx, it->width, it->height, it->idxHelper);
-		Items.push_back(tmp);
+		item* tmp = new item(it->idx, it->width, it->height, it->idxHelper);
+		tmpItems.push_back(tmp);
 	}
-	//auto rotate = this->ifRotateInstance(binHeight);
-	//if (rotate)
-	//{
-	//	this->rotateInstance(Items, binWidth, binHeight);
-	//}
-	auto bbStatus = this->branchAndBound(Items, binWidth, binHeight);
-	if (bbStatus != solutionStatus::pending)
+	this->preprocessItemHeight(tmpItems, binHeight, binWidth);
+	// make items constant
+	std::vector<const item*> Items;
+	for (const auto& it : tmpItems) Items.push_back(std::move(it));
+	// end preprocess
+	auto start = std::chrono::high_resolution_clock::now();
+	auto status = this->branchAndBound(Items, binWidth, binHeight);
+	XYZTimer::timerBB += std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::high_resolution_clock::now() - start).count() / 1000.0;
+	status = (BLEU::nodeLimitFlag && status == solutionStatus::infeasible) ? solutionStatus::pending : status;
+	if (status != solutionStatus::pending)
 	{
 		this->releaseTmpItems(Items);
-		return bbStatus;
+		return status;
 	}
-	solutionStatus status = this->combinatorialBenders(Items, binWidth, binHeight, increment);
+	start = std::chrono::high_resolution_clock::now();
+	status = this->combinatorialBenders(Items, binWidth, binHeight, increment);
+	XYZTimer::timerBD += std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::high_resolution_clock::now() - start).count() / 1000.0;
+	status = (BLEU::nodeLimitFlag && status == solutionStatus::infeasible) ? solutionStatus::pending : status;
 	this->releaseTmpItems(Items);
 	return status;
 }
@@ -104,17 +113,23 @@ int StripPacking::BLEU::takeOff()
 		int binWidth = _processedW;
 		int binHeight = _bestLowerBound - _processedH + increment;
 		if (_upperBound <= binHeight) return _bestLowerBound + increment;
-		std::vector<const item*> Items;
+		std::vector<item*> tmpItems;
 		for (const auto& it : _processedItems)
 		{
-			const item* tmp = new item(it->idx, it->width, it->height, it->idxHelper);
-			Items.push_back(tmp);
+			item* tmp = new item(it->idx, it->width, it->height, it->idxHelper);
+			tmpItems.push_back(tmp);
 		}
-		auto rotate = this->ifRotateInstance(binHeight);
+		this->preprocessItemHeight(tmpItems, binHeight, binWidth);
+		auto rotate = this->ifRotateInstance(tmpItems, binHeight, binWidth);
 		if (rotate)
 		{
-			this->rotateInstance(Items, binWidth, binHeight);
+			this->rotateInstance(tmpItems, binWidth, binHeight);
+			std::cout << "\nrotate\n";
 		}
+		 //make items constant
+		std::vector<const item*> Items;
+		for (const auto& it : tmpItems) Items.push_back(std::move(it));
+		//// end preprocess
 		auto start = std::chrono::high_resolution_clock::now();
 		auto bbStatus = this->branchAndBound(Items, binWidth, binHeight);
 		elapsedTimeBB += (std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now() - start)).count() / 1000000.0;
@@ -125,10 +140,11 @@ int StripPacking::BLEU::takeOff()
 			break;
 		}
 		start = std::chrono::high_resolution_clock::now();
-		std::cout << "BD....\n";
 		solutionStatus status = this->combinatorialBenders(Items, binWidth, binHeight, increment);
 		elapsedTimeBD += (std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now() - start)).count() / 1000000.0;
 		//std::cout << "result of the combinatorial benders is  " << status << "the height is "<<binHeight + _processedH<<std::endl;
+		if (StripPacking::BLEU::nodeLimitFlag && status == StripPacking::solutionStatus::infeasible)
+			BLEU::algStatus = algorithmStatus::approximate;
 		XYZTimer::timerBD = elapsedTimeBD;
 		if (status == solutionStatus::feasible)
 		{
@@ -161,8 +177,9 @@ bool StripPacking::BLEU::yCheckAlgorithm(const int t_processedW, const int t_Tri
 
 {
 	std::vector<coordinate> Cords4yCheck = itemPositions;
-	auto Items = this->preprocess4yCheck(t_processedItems, Cords4yCheck, t_TrialHeight, t_processedW);
-	bool result = (this->yCheckEnumerationTree(Items, Cords4yCheck, t_TrialHeight, t_processedW) == solutionStatus::feasible);
+	int binWidth = t_processedW;
+	auto Items = this->preprocess4yCheck(binWidth, t_processedItems, Cords4yCheck, t_TrialHeight);
+	bool result = (this->yCheckEnumerationTree(Items, Cords4yCheck, t_TrialHeight, binWidth) == solutionStatus::feasible);
 	this->releaseTmpItems(Items);
 	//bool result = (this->yCheckEnumerationTree(t_processedItems, itemPositions, t_TrialHeight
 	//	, t_processedW) == solutionStatus::feasible);
@@ -197,7 +214,7 @@ StripPacking::solutionStatus StripPacking::BLEU::yCheckEnumerationTree(const std
 		this->yCheckMakeBranch(currentNode, yEnTree);
 		if (exploreNodes > StripPacking::BLEU::ycheckExplNode)
 		{
-			StripPacking::BLEU::optimalityCheck = false;
+			StripPacking::BLEU::nodeLimitFlag = true;
 			return solutionStatus::pending;
 		}
 	}
@@ -510,6 +527,7 @@ void  StripPacking::BLEU::makeBranch(const std::unique_ptr<BBNode>& t_currentNod
 const StripPacking::solutionStatus StripPacking::BLEU::branchAndBound(const std::vector<const item*>& t_Items, const int t_binWidth,
 	const int t_binHeight)
 {
+	StripPacking::BLEU::nodeLimitFlag = false;
 	int tmpW = t_binWidth;
 	int tmpH = t_binHeight;
 	BLEU::interestingStatics = 0;
@@ -751,6 +769,7 @@ t_Items: should be sorted by increasing order of indexHelper
 const StripPacking::solutionStatus StripPacking::BLEU::combinatorialBenders(const std::vector<const item*>& t_Items, const int t_binWidth,
 	const int t_binHeight, int & t_increment)
 {
+	StripPacking::BLEU::nodeLimitFlag = false;
 	std::map<int, const item*> allItemsMap;
 	int maxHeight = t_binHeight;
 	std::map<int, std::set<int>> mapPosWidth, mapPosHeight;
@@ -816,7 +835,6 @@ const StripPacking::solutionStatus StripPacking::BLEU::combinatorialBenders(cons
 	cplex.extract(model);
 	cplex.setOut(env.getNullStream());
 	cplex.setWarning(env.getNullStream());
-	//cplex.exportModel("spp.lp");
 	cplex.setParam(IloCplex::Param::Preprocessing::RepeatPresolve, 3);
 	cplex.setParam(IloCplex::Param::Preprocessing::Reduce, 3);
 	cplex.setParam(IloCplex::Param::MIP::Strategy::Probe, 3);
@@ -834,17 +852,16 @@ const StripPacking::solutionStatus StripPacking::BLEU::combinatorialBenders(cons
 		}
 		cplex.setParam(IloCplex::Param::TimeLimit, _timeLimit- elapsedTimeBD);
 		cplex.solve();
-		if (cplex.getStatus() == IloAlgorithm::Status::Unknown)
+		//std::cout << "mip status is " << cplex.getCplexStatus() << std::endl;
+		if (cplex.getCplexStatus() == IloCplex::CplexStatus::AbortTimeLim)
 		{
 			env.end();
 			t_increment += 1;
+			BLEU::algStatus = algorithmStatus::approximate;
 			return solutionStatus::pending;
 		}
-
-	   // cplex.exportModel("spp.lp");
 		if (cplex.getStatus() == IloAlgorithm::Status::Infeasible)
 		{
-
 			env.end();
 			t_increment += 1;
 			return solutionStatus::infeasible;
@@ -1252,6 +1269,9 @@ void StripPacking::BLEU::preprocessingReduceW()
 	_processedW = subSetSum(_allWidths,  _W);
 }
 
+
+
+
 /*
 modify width for items according to 2.2.3 in the paper "An exact algorithm for the two-dimensional strip packing problem"
 */
@@ -1268,6 +1288,50 @@ void StripPacking::BLEU::preprocessingModifyItemWidth()
 		int maxWidth = subSetSum(integers, _processedW - (*i_it)->width) + (*i_it)->width;
 		if (maxWidth < _processedW) 
 			const_cast<item*>((*i_it))->width = (*i_it)->width + _processedW - maxWidth;
+	}
+}
+
+/*
+1) modify item height and preprocess t_items (delete a few items so the helper idx is also changed)
+2) modify the bin width 
+*/
+void StripPacking::BLEU::preprocessItemHeight(std::vector<item*>& t_items, 
+	const int t_binHeight, int& t_binWidth)
+{
+	for (auto& i_it : t_items)
+	{
+		std::vector<int> integers;
+		for (auto & j_it : t_items)
+		{
+			if (i_it->idx == j_it->idx) continue;
+			integers.push_back(j_it->height);
+		}
+		int maxHeight = subSetSum(integers, t_binHeight - i_it->height) + (i_it)->height;
+		if (maxHeight < t_binHeight)
+		{
+			(i_it)->height = (i_it)->height + t_binHeight - maxHeight;
+		}
+	}
+	int minHeight = BigNumber;
+	for (const auto& it : t_items)
+	{
+		if (minHeight > it->height) 
+			minHeight = it->height;
+	}
+	std::list<item*> tmpItems;
+	for (const auto& it : t_items)
+	{
+		if (it->height + minHeight <= t_binHeight)
+			tmpItems.push_back(it);
+		else t_binWidth -= it->width;
+	}
+	t_items.clear();
+	int i = 0;
+	for (auto & it : tmpItems)
+	{
+		it->idxHelper = i;
+		++i;
+		t_items.push_back(it);
 	}
 }
 
@@ -1562,16 +1626,16 @@ const int StripPacking::BLEU::LowerBound5()const
 if it should be rotated then rotate the instance, if not do nothing
 */
 
-const bool StripPacking::BLEU::ifRotateInstance(const int t_binHeight) const
+const bool StripPacking::BLEU::ifRotateInstance(const std::vector<item*>& t_items,const int t_binHeight, const int t_binWidth) const
 {
 	int sumH = 0;
 	int sumW = 0;
-	for (size_t idx = 0; idx < _processedItems.size(); ++idx)
+	for (size_t idx = 0; idx < t_items.size(); ++idx)
 	{
-		auto possiblePositionsWidth = computeFX(_processedW - _processedItems[idx]->width, idx,
-			_processedItems, true);
-		auto possiblePositionsHeight = computeFX(t_binHeight - _processedItems[idx]->height, idx,
-			_processedItems, false);
+		auto possiblePositionsWidth = computeFX(t_binWidth - t_items[idx]->width, idx,
+			t_items, true);
+		auto possiblePositionsHeight = computeFX(t_binHeight - t_items[idx]->height, idx,
+			t_items, false);
 		sumH  += possiblePositionsHeight.size();
 		sumW += possiblePositionsWidth.size();
 	}
@@ -1579,21 +1643,14 @@ const bool StripPacking::BLEU::ifRotateInstance(const int t_binHeight) const
 }
 
 
-void StripPacking::BLEU::rotateInstance(std::vector<const item*>& t_Items, int& t_binWidth, int& t_binHeight) const
+void StripPacking::BLEU::rotateInstance(std::vector<item*>& t_Items, int& t_binWidth, int& t_binHeight) const
 {
 	for (const auto& it : t_Items)
 	{
 		int tmpW = it->width;
-		const_cast<item*>(it)->width = it->height;
-		const_cast<item*>(it)->height = tmpW;
+		it->width = it->height;
+		it->height = tmpW;
 	}
-	//std::sort(t_Items.begin(), t_Items.end(), compareItemByWidth);
-	//int idx = 0;
-	//for (const auto& it : t_Items)
-	//{
-	//	const_cast<item*>(it)->idx = idx;
-	//	const_cast<item*>(it)->idxHelper = idx++;
-	//}
 	int tmpWidth = t_binWidth;
 	t_binWidth = t_binHeight;
 	t_binHeight = tmpWidth;
@@ -1684,6 +1741,30 @@ void StripPacking::BLEU::dumpSolution(const char* file_name,const std::vector<co
 	ofs.close();
 }
 
+void StripPacking::BLEU::dumpSolution(const char* file_name, const std::vector<item*>& t_Items,
+	const std::vector<coordinate>& t_Solution) const
+{
+	std::ofstream ofs(file_name);
+	std::ostringstream ss;
+	for (size_t i = 0; i < t_Items.size(); ++i)
+	{
+		auto tmp = t_Items[i];
+		ss.str("");
+		ss.clear();
+		ss << tmp->idx << "," << t_Solution[tmp->idxHelper].x << "," << t_Solution[tmp->idxHelper].y << "\n";
+		ofs << ss.str();
+	}
+	ofs.close();
+	ofs.open("Rectangle.output");
+	for (size_t i = 0; i < t_Items.size(); ++i)
+	{
+		ss.str("");
+		ss.clear();
+		ss << t_Items[i]->idx << "," << t_Items[i]->width << "," << t_Items[i]->height << "\n";
+		ofs << ss.str();
+	}
+	ofs.close();
+}
 
 
 void StripPacking::BLEU::calculateUB()
@@ -1691,9 +1772,10 @@ void StripPacking::BLEU::calculateUB()
 	auto strip = StripPacking::createData4JFCAlg(this->_processedItems, this->_processedW, _bestLowerBound - _processedH);
 	auto startClock = std::chrono::high_resolution_clock::now();
 	_upperBound = un_spp_h2_solve(&strip);
+	//_upperBound = un_spp_h2_quick_solve(&strip);
 	auto durationClock = std::chrono::high_resolution_clock::now() - startClock;
 	XYZTimer::timerMetaH += std::chrono::duration_cast<std::chrono::milliseconds>(durationClock).count() / 1000.0;
-	//_upperBound = un_spp_h2_quick_solve(&strip);
+	
 	strip_free(&strip);
 }
 
@@ -1715,4 +1797,19 @@ strip_t StripPacking::createData4JFCAlg(const std::vector<const item*>& t_items,
 	strip.seq_count = 1;
 	strip_init_phase2(&strip);
 	return strip;
+}
+
+
+// helper functions
+const std::set<int> StripPacking::BLEU::getItemsByCol(const int t_Col, 
+	const std::vector<item*>& t_Items, const std::vector<coordinate>& t_Cords) const
+{
+	std::set<int> result;
+	for (const auto& it : t_Items)
+	{
+		if (t_Cords[it->idxHelper].x == -1) continue;
+		if (t_Cords[it->idxHelper].x <= t_Col && t_Col <= t_Cords[it->idxHelper].x + it->width - 1)
+			result.insert(it->idxHelper);
+	}
+	return result;
 }

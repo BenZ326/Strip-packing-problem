@@ -64,6 +64,47 @@ std::set<int> StripPacking::computeFX(const int t_x,  const int t_idx,
 }
 
 
+std::set<int> StripPacking::computeFX(const int t_x, const int t_idx,
+	const std::vector<StripPacking::item*>& t_items, bool flag)
+{
+	std::vector<std::vector<int>> res;
+	for (size_t i = 0; i < t_items.size(); ++i)
+	{
+		std::vector<int> tmp(t_x + 1, 0);
+		res.push_back(tmp);
+	}
+	for (size_t j = 1; j <= t_x; ++j) res[0][j] = 0;
+	for (size_t i = 0; i < t_items.size(); ++i) res[i][0] = 1;
+	int itemIdx;
+	for (size_t j = 1; j <= t_x; ++j)		// W 
+	{
+		for (size_t i = 1; i < t_items.size(); ++i)
+		{
+			if (i - 1 < t_idx) itemIdx = i - 1;
+			else itemIdx = i;
+			if (flag)
+			{
+				int diff = j - t_items[itemIdx]->width;
+				if ((diff) < 0) res[i][j] = res[i - 1][j];
+				else res[i][j] = std::max(res[i - 1][j], res[i - 1][j - t_items[itemIdx]->width]);
+			}
+			else
+			{
+				int diff = j - t_items[itemIdx]->height;
+				if ((diff) < 0) res[i][j] = res[i - 1][j];
+				else res[i][j] = std::max(res[i - 1][j], res[i - 1][j - t_items[itemIdx]->height]);
+			}
+		}
+	}
+	std::set<int> possiblePositions;
+	for (size_t j = 0; j <= t_x; ++j)
+	{
+		if (res[res.size() - 1][j] == 1) possiblePositions.insert(j);
+	}
+	return possiblePositions;
+}
+
+
 int StripPacking::getMaximalHeight(const std::vector<const StripPacking::item*>& t_items)
 {
 	int res = -1;

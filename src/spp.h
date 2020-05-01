@@ -15,6 +15,13 @@ enum solutionStatus {
 	pending,
 	numberStatus
 };
+
+enum algorithmStatus
+{
+	approximate,
+	exact,
+	numberAlgStatus
+};
 /*
 All fast utility function and basic structure of strip packing problem
 */
@@ -110,10 +117,9 @@ public:
 
 constexpr int BigNumber = 999999;
 std::set<int> computeFX(const int t_x, const int t_idx, const std::vector<const item*>& t_items, bool flag);
+std::set<int> computeFX(const int t_x, const int t_idx,
+	const std::vector<StripPacking::item*>& t_items, bool flag);
 int getMaximalHeight(const std::vector<const item*>& t_items);
-
-
-
 /*
 Instance of the SPP
 */
