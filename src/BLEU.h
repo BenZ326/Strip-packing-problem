@@ -23,6 +23,17 @@ public:
 	static int ycheckExplNode;
 	static bool nodeLimitFlag;			// if y-check subroutine reaches node limit, it becomes true;
 	static algorithmStatus algStatus;
+	/*
+	Explanation on the nodeLimitFlag and algStatus;
+	Before running an algorithm, 
+	initialize with:
+		nodeLimitFlag = false; algStatus = exact
+	in-process:
+		as soon as ycheck exceeds node limit, nodeLimitFlag is flipped to True. 
+	end:
+		if solution status is infeasible and nodeLimitFlag = true, then the algorithm is no longer exact,
+		so algStatus = approximate
+	*/
 public:
 	BLEU(const std::vector<const item*>& t_items, const int t_W, const int t_TrialHeight, const int t_timeLimit);
 	BLEU(const std::vector<const item*>& t_items, const int t_W, const int t_timeLimit);

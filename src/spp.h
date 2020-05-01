@@ -12,7 +12,7 @@ namespace StripPacking
 enum solutionStatus {
 	feasible,
 	infeasible,
-	pending,
+	pending,			// time limit or node limit makes a solution pending
 	numberStatus
 };
 

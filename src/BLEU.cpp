@@ -12,7 +12,7 @@ int StripPacking::BLEU::bigNumber = 999999;
 int StripPacking::BLEU::BBMaxExplNodesPerPack = 10000000;
 int StripPacking::BLEU::BBMaxExplNodesNonPerPack = 10000;
 int StripPacking::BLEU::interestingStatics = 0;
-int StripPacking::BLEU::ycheckExplNode = 10;
+int StripPacking::BLEU::ycheckExplNode = 10000000;
 bool StripPacking::BLEU::nodeLimitFlag = false;
 StripPacking::algorithmStatus StripPacking::BLEU::algStatus = StripPacking::algorithmStatus::exact;
 /*
@@ -22,7 +22,6 @@ StripPacking::BLEU::BLEU(const std::vector<const item*>& t_items, const int t_W,
 	const int t_timeLimit)
 	:_allItems(t_items),_W(t_W), _trialHeight(t_TrialHeight), _evaluatedMode(true), _timeLimit(t_timeLimit)
 {
-	StripPacking::BLEU::algStatus = StripPacking::algorithmStatus::exact;
 	// sort the items by the nonincreasing of width and breaking ties by nonincreasing height
 	std::sort(_allItems.begin(), _allItems.end(), compareItemByWidth);
 	this->reassignItemsIdx();
@@ -36,7 +35,6 @@ StripPacking::BLEU::BLEU(const std::vector<const item*>& t_items, const int t_W,
 StripPacking::BLEU::BLEU(const std::vector<const item*>& t_items, const int t_W, const int t_timeLimit)
 	:_allItems(t_items), _W(t_W), _evaluatedMode(false), _timeLimit(t_timeLimit)
 {
-	StripPacking::BLEU::algStatus = StripPacking::algorithmStatus::exact;
 	// sort the items by the nonincreasing of width and breaking ties by nonincreasing height
 	std::sort(_allItems.begin(), _allItems.end(), compareItemByWidth);
 	this->reassignItemsIdx();
@@ -81,8 +79,8 @@ const StripPacking::solutionStatus StripPacking::BLEU::evaluate()
 	auto start = std::chrono::high_resolution_clock::now();
 	auto status = this->branchAndBound(Items, binWidth, binHeight);
 	XYZTimer::timerBB += std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::high_resolution_clock::now() - start).count() / 1000.0;
-	status = (BLEU::nodeLimitFlag && status == solutionStatus::infeasible) ? solutionStatus::pending : status;
-	if (status != solutionStatus::pending)
+	BLEU::algStatus = (BLEU::nodeLimitFlag && status == solutionStatus::infeasible) ? algorithmStatus::approximate : BLEU::algStatus;
+	if (status != solutionStatus::pending && BLEU::algStatus == algorithmStatus::exact)
 	{
 		this->releaseTmpItems(Items);
 		return status;
@@ -90,7 +88,7 @@ const StripPacking::solutionStatus StripPacking::BLEU::evaluate()
 	start = std::chrono::high_resolution_clock::now();
 	status = this->combinatorialBenders(Items, binWidth, binHeight, increment);
 	XYZTimer::timerBD += std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::high_resolution_clock::now() - start).count() / 1000.0;
-	status = (BLEU::nodeLimitFlag && status == solutionStatus::infeasible) ? solutionStatus::pending : status;
+	BLEU::algStatus = (BLEU::nodeLimitFlag && status == solutionStatus::infeasible) ? algorithmStatus::approximate : BLEU::algStatus;
 	this->releaseTmpItems(Items);
 	return status;
 }
@@ -134,7 +132,8 @@ int StripPacking::BLEU::takeOff()
 		auto bbStatus = this->branchAndBound(Items, binWidth, binHeight);
 		elapsedTimeBB += (std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now() - start)).count() / 1000000.0;
 		XYZTimer::timerBB = elapsedTimeBB;
-		if (bbStatus == solutionStatus::feasible)
+		BLEU::algStatus = (BLEU::nodeLimitFlag && bbStatus == solutionStatus::infeasible) ? algorithmStatus::approximate : BLEU::algStatus;
+		if (bbStatus == solutionStatus::feasible && BLEU::algStatus == algorithmStatus::exact)
 		{
 			this->releaseTmpItems(Items);
 			break;
@@ -143,8 +142,7 @@ int StripPacking::BLEU::takeOff()
 		solutionStatus status = this->combinatorialBenders(Items, binWidth, binHeight, increment);
 		elapsedTimeBD += (std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now() - start)).count() / 1000000.0;
 		//std::cout << "result of the combinatorial benders is  " << status << "the height is "<<binHeight + _processedH<<std::endl;
-		if (StripPacking::BLEU::nodeLimitFlag && status == StripPacking::solutionStatus::infeasible)
-			BLEU::algStatus = algorithmStatus::approximate;
+		BLEU::algStatus = (BLEU::nodeLimitFlag && status == solutionStatus::infeasible) ? algorithmStatus::approximate : BLEU::algStatus;
 		XYZTimer::timerBD = elapsedTimeBD;
 		if (status == solutionStatus::feasible)
 		{
@@ -528,6 +526,7 @@ const StripPacking::solutionStatus StripPacking::BLEU::branchAndBound(const std:
 	const int t_binHeight)
 {
 	StripPacking::BLEU::nodeLimitFlag = false;
+	BLEU::algStatus = algorithmStatus::exact;
 	int tmpW = t_binWidth;
 	int tmpH = t_binHeight;
 	BLEU::interestingStatics = 0;
@@ -770,6 +769,7 @@ const StripPacking::solutionStatus StripPacking::BLEU::combinatorialBenders(cons
 	const int t_binHeight, int & t_increment)
 {
 	StripPacking::BLEU::nodeLimitFlag = false;
+	BLEU::algStatus = algorithmStatus::exact;
 	std::map<int, const item*> allItemsMap;
 	int maxHeight = t_binHeight;
 	std::map<int, std::set<int>> mapPosWidth, mapPosHeight;
@@ -848,6 +848,7 @@ const StripPacking::solutionStatus StripPacking::BLEU::combinatorialBenders(cons
 		{
 			env.end();
 			t_increment += 1;
+			BLEU::algStatus = algorithmStatus::approximate;
 			return solutionStatus::pending;
 		}
 		cplex.setParam(IloCplex::Param::TimeLimit, _timeLimit- elapsedTimeBD);
