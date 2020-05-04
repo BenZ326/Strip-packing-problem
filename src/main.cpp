@@ -19,6 +19,7 @@ int main()
 		int W = readData(filePath, allItems);
 		StripPacking::BLEU alg(allItems,W,40,1.5);
 		auto status = alg.evaluate();
+		std::cout <<"\n"<< status;
 		for (auto it = allItems.begin(); it != allItems.end(); ++it)
 			delete (*it);
 	}

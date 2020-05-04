@@ -512,6 +512,7 @@ void  StripPacking::BLEU::makeBranch(const std::unique_ptr<BBNode>& t_currentNod
 const StripPacking::solutionStatus StripPacking::BLEU::branchAndBound(const std::vector<const item*>& t_Items, const int t_binWidth,
 	const int t_binHeight)
 {
+	if (t_Items.empty()) return StripPacking::solutionStatus::feasible;
 	StripPacking::BLEU::nodeLimitFlag = false;
 	BLEU::algStatus = algorithmStatus::exact;
 	int tmpW = t_binWidth;
@@ -755,6 +756,7 @@ t_Items: should be sorted by increasing order of indexHelper
 const StripPacking::solutionStatus StripPacking::BLEU::combinatorialBenders(const std::vector<const item*>& t_Items, const int t_binWidth,
 	const int t_binHeight, int & t_increment)
 {
+	if (t_Items.empty()) return StripPacking::solutionStatus::feasible;
 	StripPacking::BLEU::nodeLimitFlag = false;
 	BLEU::algStatus = algorithmStatus::exact;
 	std::map<int, const item*> allItemsMap;
