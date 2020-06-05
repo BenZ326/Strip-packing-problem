@@ -6,7 +6,6 @@
 #include <iostream>
 #include <stack>
 #include <chrono>
-#include "sl/code/un_2spp_h2.h"
 double StripPacking::BLEU::tolerance = 0.0001;
 int StripPacking::BLEU::bigNumber = 999999;
 int StripPacking::BLEU::BBMaxExplNodesPerPack = 10000000;

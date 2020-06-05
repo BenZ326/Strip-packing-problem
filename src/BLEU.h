@@ -1,7 +1,6 @@
 #pragma once
 #include "spp.h"
 #include <stack>
-#include "sl/code/struct2d.h"
 class itemPieceWidth;
 namespace StripPacking
 {

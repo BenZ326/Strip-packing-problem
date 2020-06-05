@@ -131,10 +131,8 @@ inline const std::string getVarName(const int t_itemIdx, const int t_xPos);
 
 const std::string getVarName(const int t_itemIdx, const int t_xPos)
 {
-	item::ss.str("");
-	item::ss.clear();
-	item::ss << "item" << t_itemIdx << "assign" << t_xPos;
-	return item::ss.str();
+	std::string str = "item" + std::to_string(t_itemIdx) + "assign" + std::to_string(t_xPos);
+	return str;
 }
 
 
