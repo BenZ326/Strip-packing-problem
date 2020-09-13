@@ -9,7 +9,7 @@
 double StripPacking::BLEU::tolerance = 0.0001;
 int StripPacking::BLEU::bigNumber = 999999;
 int StripPacking::BLEU::BBMaxExplNodesPerPack = 10000000;
-int StripPacking::BLEU::BBMaxExplNodesNonPerPack = 10000;
+int StripPacking::BLEU::BBMaxExplNodesNonPerPack = 80000;
 int StripPacking::BLEU::interestingStatics = 0;
 int StripPacking::BLEU::ycheckExplNode = 10000000;
 bool StripPacking::BLEU::nodeLimitFlag = false;
@@ -66,6 +66,7 @@ const StripPacking::solutionStatus StripPacking::BLEU::evaluate()
 		tmpItems.push_back(tmp);
 	}
 	this->preprocessItemHeight(tmpItems, binHeight, binWidth);
+	if (binWidth < 0) return StripPacking::solutionStatus::infeasible;
 	// make items constant
 	std::vector<const item*> Items;
 	for (const auto& it : tmpItems) Items.push_back(std::move(it));
@@ -106,41 +107,72 @@ int StripPacking::BLEU::takeOff()
 			tmpItems.push_back(tmp);
 		}
 		this->preprocessItemHeight(tmpItems, binHeight, binWidth);
-		auto rotate = this->ifRotateInstance(tmpItems, binHeight, binWidth);
-		if (rotate)
-		{
-			this->rotateInstance(tmpItems, binWidth, binHeight);
-			std::cout << "\nrotate\n";
-		}
+		//auto rotate = this->ifRotateInstance(tmpItems, binHeight, binWidth);
+		//if (rotate)
+		//{
+		//	this->rotateInstance(tmpItems, binWidth, binHeight);
+		//}
 		 //make items constant
 		std::vector<const item*> Items;
 		for (const auto& it : tmpItems) Items.push_back(std::move(it));
 		//// end preprocess
-		auto start = std::chrono::high_resolution_clock::now();
 		auto bbStatus = this->branchAndBound(Items, binWidth, binHeight);
-		elapsedTimeBB += (std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now() - start)).count() / 1000000.0;
-		BLEU::algStatus = (BLEU::nodeLimitFlag && bbStatus == solutionStatus::infeasible) ? algorithmStatus::approximate : BLEU::algStatus;
+		BLEU::algStatus = (BLEU::nodeLimitFlag || bbStatus == solutionStatus::pending) ? algorithmStatus::approximate : BLEU::algStatus;
 		if (bbStatus == solutionStatus::feasible && BLEU::algStatus == algorithmStatus::exact)
 		{
 			this->releaseTmpItems(Items);
-			break;
-		}
-		start = std::chrono::high_resolution_clock::now();
-		solutionStatus status = this->combinatorialBenders(Items, binWidth, binHeight, increment);
-		elapsedTimeBD += (std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now() - start)).count() / 1000000.0;
-		//std::cout << "result of the combinatorial benders is  " << status << "the height is "<<binHeight + _processedH<<std::endl;
-		BLEU::algStatus = (BLEU::nodeLimitFlag && status == solutionStatus::infeasible) ? algorithmStatus::approximate : BLEU::algStatus;
-		if (status == solutionStatus::feasible)
-		{
-			this->releaseTmpItems(Items);
-			break;
+			return _bestLowerBound + increment;
 		}
 		else
 		{
-			this->releaseTmpItems(Items);
+			if (BLEU::algStatus == algorithmStatus::exact)
+			{
+				increment++;
+			}
+			else return -1;
 		}
+		//start = std::chrono::high_resolution_clock::now();
+		//solutionStatus status = this->combinatorialBenders(Items, binWidth, binHeight, increment);
+		//elapsedTimeBD += (std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now() - start)).count() / 1000000.0;
+		////std::cout << "result of the combinatorial benders is  " << status << "the height is "<<binHeight + _processedH<<std::endl;
+		//BLEU::algStatus = (BLEU::nodeLimitFlag && status == solutionStatus::infeasible) ? algorithmStatus::approximate : BLEU::algStatus;
+		//if (status == solutionStatus::feasible)
+		//{
+		//	this->releaseTmpItems(Items);
+		//	break;
+		//}
+		//else
+		//{
+		//	this->releaseTmpItems(Items);
+		//}
 	}
-	return _bestLowerBound + increment;
+}
+
+
+const StripPacking::solutionStatus StripPacking::BLEU::solvePCC()		
+// solve the parallel machine scheduling with contiguity constraints
+{
+	if (_processedItems.empty()) return solutionStatus::feasible;
+	if (_bestLowerBound > _trialHeight) return solutionStatus::infeasible;
+	int binWidth = _processedW;
+	int binHeight = _trialHeight - _processedH;
+	int increment = 0;
+	std::vector<item*> tmpItems;
+	for (const auto& it : _processedItems)
+	{
+		item* tmp = new item(it->idx, it->width, it->height, it->idxHelper);
+		tmpItems.push_back(tmp);
+	}
+	this->preprocessItemHeight(tmpItems, binHeight, binWidth);
+	if (binWidth < 0) return StripPacking::solutionStatus::infeasible;
+	// make items constant
+	std::vector<const item*> Items;
+	for (const auto& it : tmpItems) Items.push_back(std::move(it));
+	// end preprocess
+	auto status = this->branchAndBoundYRelax(Items, binWidth, binHeight);
+	this->releaseTmpItems(Items);
+	return status;
+
 }
 
 
@@ -538,6 +570,50 @@ const StripPacking::solutionStatus StripPacking::BLEU::branchAndBound(const std:
 				return solutionStatus::feasible;
 			}
 			else continue;							// the node can not be transformed to a feasible solution for the SPP
+		}
+		else
+		{
+			// bounding the current Node
+			if (this->bounding(currentNode))
+				continue;
+			// make branch
+			numberExploredNodes++;
+			this->makeBranch(currentNode, dfsTree);
+		}
+	}
+	if (numberExploredNodes >= maxExpNodes)
+	{
+		return solutionStatus::pending;
+	}
+	else return solutionStatus::infeasible;
+}
+
+
+const StripPacking::solutionStatus StripPacking::BLEU::branchAndBoundYRelax(const std::vector<const item*>& t_Items, const int t_binWidth,
+	const int t_binHeight)
+{
+	if (t_Items.empty()) return StripPacking::solutionStatus::feasible;
+	StripPacking::BLEU::nodeLimitFlag = false;
+	int tmpW = t_binWidth;
+	int tmpH = t_binHeight;
+	BLEU::interestingStatics = 0;
+	int maxExpNodes;
+	std::unique_ptr<BBNode>	root(new BBNode(t_Items, tmpW, tmpH));
+	double totalArea = 0.0;
+	for (const auto& it : t_Items) totalArea += it->width*it->height;
+	if (abs(tmpH - (totalArea / tmpW)) < BLEU::tolerance) maxExpNodes = BLEU::BBMaxExplNodesPerPack;
+	else maxExpNodes = BLEU::BBMaxExplNodesNonPerPack;
+	std::stack<std::unique_ptr<BBNode>> dfsTree;
+	dfsTree.push(std::move(root));
+	int numberExploredNodes = 0;
+	while (!dfsTree.empty() && numberExploredNodes < maxExpNodes)
+	{
+		const auto currentNode = std::move(dfsTree.top());
+		dfsTree.pop();
+		// if it's a feasible solution return 
+		if (currentNode->remainingItems.empty())
+		{
+			return solutionStatus::feasible;
 		}
 		else
 		{
@@ -1601,7 +1677,7 @@ const int StripPacking::BLEU::LowerBound5()const
 		mapPosWidth.insert(std::pair<int, std::set<int>>(_processedItems[idx]->idx, possiblePositionsWidth));
 		mapPosHeight.insert(std::pair<int, std::set<int>>(_processedItems[idx]->idx, possiblePositionsHeight));
 	}
-	auto lb = solve(_processedItems, mapPosWidth, mapPosHeight, false) + _processedH;
+	auto lb = solve(_processedItems, mapPosWidth, mapPosHeight,false) + _processedH;
 	if (std::floor(lb) - lb < BLEU::tolerance) lb = std::floor(lb);
 	else lb = std::ceil(lb);
 	return lb;

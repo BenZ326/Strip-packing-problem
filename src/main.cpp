@@ -17,9 +17,9 @@ int main()
 		std::cout << filePath;
 		std::vector<const StripPacking::item*> allItems;
 		int W = readData(filePath, allItems);
-		StripPacking::BLEU alg(allItems,W,40,1.5);
-		auto status = alg.evaluate();
-		std::cout <<"\n"<< status;
+		StripPacking::BLEU alg(allItems,W,40, 2.0);
+		auto status= alg.evaluate();
+		std::cout << "the  solution status is " << status;
 		for (auto it = allItems.begin(); it != allItems.end(); ++it)
 			delete (*it);
 	}

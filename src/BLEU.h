@@ -38,6 +38,7 @@ public:
 	void bounds();
 	const solutionStatus evaluate();
 	int takeOff();			// start to solve
+	const StripPacking::solutionStatus solvePCC();			// solve the parallel machine scheduling with contiguity constraints
 	void dumpSolution(const char* file_name = "Solution.output") const;
 	void dumpSolution(const char* file_name, const std::vector<const item*>& t_Items,
 		const std::vector<coordinate>& t_Solution) const;
@@ -104,6 +105,8 @@ public:
 };
 protected:
 	const solutionStatus branchAndBound(const std::vector<const item*>& t_Items, const int t_binWidth,
+		const int t_binHeight);
+	const solutionStatus branchAndBoundYRelax(const std::vector<const item*>& t_Items, const int t_binWidth,
 		const int t_binHeight);
 	void makeBranch(const std::unique_ptr<BBNode>& t_currentNode, 
 		std::stack<std::unique_ptr<BBNode>>& t_dfstree) const;
