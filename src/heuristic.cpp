@@ -166,7 +166,6 @@ const int StripPacking::Heuristic::iteratedGreedy(std::vector<const StripPacking
 				if (height < primalBound) {
 					primalBound = height;
 					improved = true;
-					this->dumpSolution(t_allItems);
 					break;
 				}
 				else insertItem(t_allItems, j, i);
