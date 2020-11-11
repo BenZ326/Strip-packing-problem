@@ -1,0 +1,44 @@
+#pragma once
+#include "spp.h"
+#include "skyline.h"
+
+
+namespace StripPacking
+{
+	class Heuristic
+	{
+	public:	// static member functions and variables
+		static std::vector<coordinate> solutions;			// the order is the same as the input order
+		
+	public:
+		const int leftBottomHeuristic(const std::vector<const StripPacking::item*>& t_allItems, const int t_binWidth);
+		const int bestFitHeuristic(std::vector<const StripPacking::item*>& t_allItems, const int t_binWidth);
+		void dumpSolution(const std::vector<const StripPacking::item*>& t_allItems);
+		const int iteratedGreedy(std::vector<const StripPacking::item*>& t_allItems, const int t_binWidth);
+
+	protected:
+		const StripPacking::item* findBestItem(std::vector<const StripPacking::item*>& t_allItems, const StripPacking::Skyline* t_skyline);
+		const int parseSol(const Skyline* t_skyline);
+	};
+
+	inline void insertItem(std::vector<const StripPacking::item*>& v, const int t_fromPos, const int t_toPos)
+	{
+		auto obj = v[t_fromPos];
+		v.erase(v.begin() + t_fromPos);
+		v.insert(v.begin() + t_toPos, obj);
+	}
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
