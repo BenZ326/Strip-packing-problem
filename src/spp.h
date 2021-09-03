@@ -1,11 +1,10 @@
 #pragma once
 #include <vector>
 #include <list>
-#include <ilcplex/ilocplex.h>
 #include <map>
 #include <set>
 #include <algorithm>
-
+#include <string>
 namespace StripPacking
 {
 

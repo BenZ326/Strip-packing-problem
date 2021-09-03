@@ -125,12 +125,19 @@ void StripPacking::liftSkyline(StripPacking::Skyline* t_skyline)				// lift a sk
 		removeSkyline(t_skyline);
 		return;
 	}
-	if (t_skyline->prev->corY == t_skyline->next->corY)
+	if (t_skyline->prev->corY == t_skyline->next->corY )
 	{
-		t_skyline->prev->length += t_skyline->length;
-		auto pre = t_skyline->prev;
-		removeSkyline(t_skyline);
-		detectAndMergeSkylines(pre);
+		if (t_skyline->prev->corY == 999999)
+		{
+			t_skyline->corY = 999999;
+		}
+		else
+		{
+			t_skyline->prev->length += t_skyline->length;
+			auto pre = t_skyline->prev;
+			removeSkyline(t_skyline);
+			detectAndMergeSkylines(pre);
+		}
 		return;
 	}
 	if (t_skyline->prev->corY > t_skyline->next->corY)

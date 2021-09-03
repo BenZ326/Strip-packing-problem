@@ -2,6 +2,8 @@
 #include <algorithm>
 #include <list>
 #include <set>
+#include <ilcplex/ilocplex.h>
+
 /*
 The paper section 2.1 (1) and (2)
 t_items: all the items

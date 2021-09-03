@@ -1,5 +1,7 @@
 #pragma once
 #include "spp.h"
+#include <ilcplex/ilocplex.h>
+
 #include <stack>
 class itemPieceWidth;
 namespace StripPacking

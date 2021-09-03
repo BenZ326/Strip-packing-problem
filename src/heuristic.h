@@ -13,11 +13,14 @@ namespace StripPacking
 	public:
 		const int leftBottomHeuristic(const std::vector<const StripPacking::item*>& t_allItems, const int t_binWidth);
 		const int bestFitHeuristic(std::vector<const StripPacking::item*>& t_allItems, const int t_binWidth);
+		const bool generalBestFitHeurisitic(std::vector<const StripPacking::item*>& t_allItems, const std::vector<const StripPacking::item*>& t_Bins);
 		void dumpSolution(const std::vector<const StripPacking::item*>& t_allItems);
 		const int iteratedGreedy(std::vector<const StripPacking::item*>& t_allItems, const int t_binWidth);
 
 	protected:
 		const StripPacking::item* findBestItem(std::vector<const StripPacking::item*>& t_allItems, const StripPacking::Skyline* t_skyline);
+		const StripPacking::item* findBestItem(std::vector<const StripPacking::item*>& t_allItems, const StripPacking::Skyline* t_skyline,
+			const StripPacking::item* t_bin);
 		const int parseSol(const Skyline* t_skyline);
 	};
 

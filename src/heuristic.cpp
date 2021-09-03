@@ -1,5 +1,7 @@
 #include "heuristic.h"
 #include "skyline.h"
+#include <iostream>
+#include <assert.h>
 #include <fstream>
 std::vector<StripPacking::coordinate>  StripPacking::Heuristic::solutions;
 
@@ -14,6 +16,7 @@ const int  StripPacking::Heuristic::parseSol(const  StripPacking::Skyline* t_sky
 		cur = cur->next;
 		delete cur->prev;
 	}
+	delete cur;			// right-hand-side
 	return result;
 }
 
@@ -49,7 +52,6 @@ const int StripPacking::Heuristic::leftBottomHeuristic(const std::vector<const S
 	}
 	int result = this->parseSol(leftSide);
 	delete leftSide;
-	delete rightSide;
 	return result;
 }
 
@@ -87,6 +89,23 @@ const StripPacking::item* StripPacking::Heuristic::findBestItem(std::vector<cons
 	t_allItems.erase(ptr);
 	return res;
 }
+
+const StripPacking::item*  StripPacking::Heuristic::findBestItem(std::vector<const StripPacking::item*>& t_allItems, const StripPacking::Skyline* t_skyline,
+	const StripPacking::item* t_bin)
+{
+	auto ptr = t_allItems.begin();
+	const StripPacking::item* res = nullptr;
+	while (ptr != t_allItems.end() && ((*ptr)->width > t_skyline->length
+		|| (*ptr)->height + t_skyline->corY > t_bin->height))
+	{
+		ptr++;
+	}
+	if (ptr == t_allItems.end()) return nullptr;
+	res = (*ptr);
+	t_allItems.erase(ptr);
+	return res;
+}
+
 
 const int StripPacking::Heuristic::bestFitHeuristic(std::vector<const StripPacking::item*>& t_allItems, const int t_binWidth)
 {
@@ -141,7 +160,6 @@ const int StripPacking::Heuristic::bestFitHeuristic(std::vector<const StripPacki
 
 	int result = this->parseSol(leftSide);
 	delete leftSide;
-	delete rightSide;
 	return result;
 
 }
@@ -173,4 +191,89 @@ const int StripPacking::Heuristic::iteratedGreedy(std::vector<const StripPacking
 		}
 	}
 	return primalBound;
+}
+
+/*
+A heuristic to solve a variable sized bin packing problem, which can be described as follows:
+given a set of rectangular items and a set of bins. Answer if the items can be packed into the bins or not?
+The general idea of the following heuristic is:
+	1) identify a niche that is the lowest among all the bins
+	2) identify an item that fits the niche the best and place the item over the niche
+	3) keep the above two steps until no item is left.
+*/
+const bool  StripPacking::Heuristic::generalBestFitHeurisitic(std::vector<const StripPacking::item*>& t_allItems, const std::vector<const StripPacking::item*>& t_Bins)
+{
+	Heuristic::solutions.clear();
+	for (int i = 0; i < t_allItems.size(); ++i)
+		Heuristic::solutions.push_back(coordinate(0, 0));
+	// create bins
+	std::vector<Skyline*> headSkylines;
+	for (int i = 0; i < t_Bins.size(); ++i)
+	{
+		Skyline* stripBottom = new Skyline(t_Bins[i]->width);
+		Skyline* leftSide = new Skyline(false);
+		Skyline* rightSide = new Skyline(false);
+		leftSide->next = stripBottom;
+		rightSide->prev = stripBottom;
+		stripBottom->next = rightSide;
+		stripBottom->prev = leftSide;
+		headSkylines.push_back(std::move(leftSide));
+	}
+	std::sort(t_allItems.begin(), t_allItems.end(), [](const StripPacking::item* t1, const StripPacking::item* t2) {
+		return t1->width > t2->width || (t1->width == t2->width && t1->height > t2->height);
+	});
+	while (!t_allItems.empty())
+	{
+		// identify the lowest niche
+		int lowestIdx = -1;
+		Skyline* lowestNiche = nullptr;
+		int lowestHeight = 999999;
+		Skyline* selectedSkyline = nullptr;
+
+		for (int i = 0; i < t_Bins.size(); ++i)
+		{ 
+			selectedSkyline = selectSkyline(headSkylines[i], skylineSelectionMode::bestFit);
+			if (selectedSkyline != nullptr && selectedSkyline->corY < lowestHeight && selectedSkyline->corY < t_Bins[i]->height)
+			{
+				lowestHeight = selectedSkyline->corY;
+				lowestIdx = i;
+				lowestNiche = selectedSkyline;
+			}
+		}
+		if (lowestNiche == nullptr) break;			// no niche is selected
+		auto bestFitItem = this->findBestItem(t_allItems, lowestNiche, t_Bins[lowestIdx]);
+		int scenario = bestFitItem == nullptr ? 2 :
+			(bestFitItem->width == lowestNiche->length ? 0 : 1);
+
+		// if perfectly fit scenario =0
+		// if less, scenario = 1
+		// if none can fit, scenario = 2
+		switch (scenario)
+		{
+		case 0:
+		{
+			addItemOverSkyline(lowestNiche, bestFitItem);
+			break;
+		}
+		case 1:
+		{
+			addItemOverSkyline(lowestNiche, bestFitItem);			// niche placement policy: place the item at the leftside of the niche
+			break;
+		}
+		case 2:
+		{
+			liftSkyline(lowestNiche);
+			break;
+		}
+		default:
+			break;
+		}
+	}
+
+	for (int i = 0; i < headSkylines.size(); ++i)
+	{
+		int result = this->parseSol(headSkylines[i]);
+		delete headSkylines[i];
+	}
+	return t_allItems.empty();
 }

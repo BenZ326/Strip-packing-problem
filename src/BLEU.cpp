@@ -5,6 +5,7 @@
 #include "knapsack.h"
 #include <iostream>
 #include <stack>
+
 #include <chrono>
 double StripPacking::BLEU::tolerance = 0.0001;
 int StripPacking::BLEU::bigNumber = 999999;
