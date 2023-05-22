@@ -195,11 +195,11 @@ bool StripPacking::BLEU::yCheckAlgorithm(const int t_processedW, const int t_Tri
 {
 	std::vector<coordinate> Cords4yCheck = itemPositions;
 	int binWidth = t_processedW;
-	auto Items = this->preprocess4yCheck(binWidth, t_processedItems, Cords4yCheck, t_TrialHeight);
-	bool result = (this->yCheckEnumerationTree(Items, Cords4yCheck, t_TrialHeight, binWidth) == solutionStatus::feasible);
-	this->releaseTmpItems(Items);
-	//bool result = (this->yCheckEnumerationTree(t_processedItems, itemPositions, t_TrialHeight
-	//	, t_processedW) == solutionStatus::feasible);
+	//auto Items = this->preprocess4yCheck(binWidth, t_processedItems, Cords4yCheck, t_TrialHeight);
+	//bool result = (this->yCheckEnumerationTree(, Cords4yCheck, t_TrialHeight, binWidth) == solutionStatus::feasible);
+	//this->releaseTmpItems(Items);
+	bool result = (this->yCheckEnumerationTree(t_processedItems, itemPositions, t_TrialHeight
+	, t_processedW) == solutionStatus::feasible);
 	return result;
 }
 
@@ -224,6 +224,12 @@ StripPacking::solutionStatus StripPacking::BLEU::yCheckEnumerationTree(const std
 		yEnTree.pop();
 		if (currentNode->remainingItems.empty())
 		{
+			#ifdef DUMP_SOL
+			for (size_t i = 0; i < currentNode->itemPositions.size(); ++i)
+			{
+				_finalSolution.insert(std::pair<int, coordinate>(t_InterestItems[i]->idx, currentNode->itemPositions[i]));
+			}
+			#endif
 			return solutionStatus::feasible;
 		}
 		if (this->yCheckBounding(currentNode))	continue;
@@ -568,10 +574,6 @@ const StripPacking::solutionStatus StripPacking::BLEU::branchAndBound(const std:
 		{
 			if (this->yCheckAlgorithm(tmpW, tmpH, currentNode->itemPositions, t_Items))
 			{
-				for (int i=0; i<t_Items.size(); ++i)
-				{
-					_finalSolution.insert(std::pair<int, coordinate>(t_Items[i]->idx, currentNode->itemPositions[i]));
-				}
 				return solutionStatus::feasible;
 			}
 			else continue;							// the node can not be transformed to a feasible solution for the SPP

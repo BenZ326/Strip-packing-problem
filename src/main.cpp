@@ -26,9 +26,11 @@ int main()
 	    StripPacking::BLEU alg(allItems,W,40,100.0);
 		auto status = alg.evaluate();
 		std::cout << "the status is " << status<<"\n";
+		#ifdef DUMP_SOL
 		std::vector<std::string> splitted;
 		splitString(filePath, "\\", splitted);
 		alg.dumpSolution((splitted[2]));
+		#endif
 		for (auto it = allItems.begin(); it != allItems.end(); ++it)
 			delete (*it);
 	}

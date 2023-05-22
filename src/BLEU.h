@@ -3,6 +3,7 @@
 #include <ilcplex/ilocplex.h>
 
 #include <stack>
+#define DUMP_SOL
 class itemPieceWidth;
 namespace StripPacking
 {
@@ -130,7 +131,7 @@ bool yCheckAlgorithm(const int t_processedW, const int t_TrialHeight, const std:
 The enumerate tree described right before section 4
 */
 solutionStatus yCheckEnumerationTree(const std::vector<const item*>& t_InterestItems, const std::vector<coordinate>& t_Cords,
-	const int t_Height, const int t_Width) const ;
+	const int t_Height, const int t_Width) const;
 bool yCheckBounding(const std::unique_ptr<BBNode>& t_currentNode) const;
 void yCheckMakeBranch(const std::unique_ptr<BBNode>& t_currentNode, 
 	std::stack<std::unique_ptr<BBNode>>& t_yEntree) const;
@@ -265,7 +266,7 @@ private:
 	int _processedW;
 	int _bestLowerBound;
 	int _trialHeight;			// the current height being tried
-	std::map<int, coordinate> _finalSolution;		// key is item original index
+	mutable std::map<int, coordinate> _finalSolution;		// key is item original index
 	const bool _evaluatedMode;			// if it is true, then the algorithm starts from a given height, the mission is to determine if the height is feasible
 	const int _timeLimit;
 
