@@ -568,6 +568,10 @@ const StripPacking::solutionStatus StripPacking::BLEU::branchAndBound(const std:
 		{
 			if (this->yCheckAlgorithm(tmpW, tmpH, currentNode->itemPositions, t_Items))
 			{
+				for (int i=0; i<t_Items.size(); ++i)
+				{
+					_finalSolution.insert(std::pair<int, coordinate>(t_Items[i]->idx, currentNode->itemPositions[i]));
+				}
 				return solutionStatus::feasible;
 			}
 			else continue;							// the node can not be transformed to a feasible solution for the SPP
@@ -1758,20 +1762,22 @@ const	 double StripPacking::BLEU::DualFeasibleFunction3(const int t_alpha, const
 }
 
 
-void StripPacking::BLEU::dumpSolution(const char* file_name) const
+void StripPacking::BLEU::dumpSolution(const std::string file_name) const
 {
-	std::ofstream ofs(file_name);
+	std::ofstream ofs("./gen_spp/Solution_"+file_name+".sol");
 	std::ostringstream ss;
-	for (size_t i = 0; i < _processedItems.size(); ++i)
+	for (const auto & it: _finalSolution)
 	{
-		auto tmp = _processedItems[i];
 		ss.str("");
 		ss.clear();
-		ss << tmp->idx << "," << _finalSolution[tmp->idxHelper].x << "," << _finalSolution[tmp->idxHelper].y << "\n";
+		ss << it.first << "," <<it.second.x<< "," << it.second.y << "\n";
 		ofs << ss.str();
 	}
 	ofs.close();
-	ofs.open("Rectangle.output");
+	ss.str("");
+	ss.clear();
+	ss << "./gen_spp/Rectangle_" << file_name << ".rec";
+	ofs.open(ss.str());
 	for (size_t i = 0; i < _allItems.size(); ++i)
 	{
 		ss.str("");

@@ -82,7 +82,7 @@ public:
 	int idx;
 	int width;
 	int height;
-	int idxHelper;						// an alternative identifier
+	int idxHelper;						// an alternative identifier, idxHelper stores the idx in the _processedItems.
 	std::vector<const item*> subItems;
 	static std::ostringstream ss;
 	bool operator<(const item& t_item) const

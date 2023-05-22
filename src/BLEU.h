@@ -41,7 +41,7 @@ public:
 	const solutionStatus evaluate();
 	int takeOff();			// start to solve
 	const StripPacking::solutionStatus solvePCC();			// solve the parallel machine scheduling with contiguity constraints
-	void dumpSolution(const char* file_name = "Solution.output") const;
+	void dumpSolution(const std::string file_name) const;
 	void dumpSolution(const char* file_name, const std::vector<const item*>& t_Items,
 		const std::vector<coordinate>& t_Solution) const;
 	void dumpSolution(const char* file_name, const std::vector<item*>& t_Items,
@@ -265,7 +265,7 @@ private:
 	int _processedW;
 	int _bestLowerBound;
 	int _trialHeight;			// the current height being tried
-	std::vector<coordinate> _finalSolution;
+	std::map<int, coordinate> _finalSolution;		// key is item original index
 	const bool _evaluatedMode;			// if it is true, then the algorithm starts from a given height, the mission is to determine if the height is feasible
 	const int _timeLimit;
 

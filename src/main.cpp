@@ -17,21 +17,18 @@ int main()
 	{
 		std::string filePath = entry.path().relative_path().string();
 		std::cout << filePath;
+		
 		std::vector<const StripPacking::item*> allItems;
 		StripPacking::Heuristic hrs;
 		int W = readData(filePath, allItems);
 		std::vector<const StripPacking::item*> copyItems(allItems.begin(), allItems.end());
 		int totalArea = 0;
-		const StripPacking::item* bin1 = new StripPacking::item(10, 5, 2);
-		std::vector<const StripPacking::item*> bins;
-		bins.push_back(bin1);
-		bool res = hrs.generalBestFitHeurisitic(copyItems, bins);
-		auto str = res ? "can" : "cannot";
-		std::cout << "\n the bin " <<  str<< " contain the items\n";
-	/*	StripPacking::BLEU alg(allItems,W, 2.0);
-		auto optimalHeight = alg.takeOff();
-		std::cout << "optimal height is " << optimalHeight<<"\n";*/
-		delete bin1;
+	    StripPacking::BLEU alg(allItems,W,40,100.0);
+		auto status = alg.evaluate();
+		std::cout << "the status is " << status<<"\n";
+		std::vector<std::string> splitted;
+		splitString(filePath, "\\", splitted);
+		alg.dumpSolution((splitted[2]));
 		for (auto it = allItems.begin(); it != allItems.end(); ++it)
 			delete (*it);
 	}
