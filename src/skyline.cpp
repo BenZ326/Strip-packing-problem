@@ -39,6 +39,7 @@ StripPacking::Skyline* StripPacking::selectSkyline(const StripPacking::Skyline* 
 	default:
 		break;
 	}
+	return nullptr;
 }
 
 // add an item over the selected skyline, see the relaxationMode

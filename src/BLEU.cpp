@@ -3,14 +3,26 @@
 #include "util.h"
 #include "spp.h"
 #include "knapsack.h"
+#include "master_milp.h"
 #include <iostream>
 #include <stack>
+#include <functional>
+#include <limits>
+#include <cstdio>
+#include <memory>
+#include <cmath>
+#include <fstream>
+#include <filesystem>
+#include <cstdlib>
+#include <unistd.h>
+#include <unordered_map>
+#include <random>
 
 #include <chrono>
 double StripPacking::BLEU::tolerance = 0.0001;
 int StripPacking::BLEU::bigNumber = 999999;
 int StripPacking::BLEU::BBMaxExplNodesPerPack = 10000000;
-int StripPacking::BLEU::BBMaxExplNodesNonPerPack = 80000;
+int StripPacking::BLEU::BBMaxExplNodesNonPerPack = 5000;
 int StripPacking::BLEU::interestingStatics = 0;
 int StripPacking::BLEU::ycheckExplNode = 10000000;
 bool StripPacking::BLEU::nodeLimitFlag = false;
@@ -94,11 +106,17 @@ else return the next possible height, implying the the height is infeasible for 
 */
 int StripPacking::BLEU::takeOff()
 {
-	double elapsedTimeBB = 0.0;
-	double elapsedTimeBD = 0.0;
 	int increment = 0;
+	auto globalStart = std::chrono::high_resolution_clock::now();
 	while (true)
 	{
+		const double elapsedGlobal = (std::chrono::duration_cast<std::chrono::microseconds>(
+			std::chrono::high_resolution_clock::now() - globalStart)).count() / 1000000.0;
+		if (elapsedGlobal > _timeLimit)
+		{
+			BLEU::algStatus = algorithmStatus::approximate;
+			return -1;
+		}
 		int binWidth = _processedW;
 		int binHeight = _bestLowerBound - _processedH + increment;
 		std::vector<item*> tmpItems;
@@ -118,34 +136,26 @@ int StripPacking::BLEU::takeOff()
 		for (const auto& it : tmpItems) Items.push_back(std::move(it));
 		//// end preprocess
 		auto bbStatus = this->branchAndBound(Items, binWidth, binHeight);
-		BLEU::algStatus = (BLEU::nodeLimitFlag || bbStatus == solutionStatus::pending) ? algorithmStatus::approximate : BLEU::algStatus;
-		if (bbStatus == solutionStatus::feasible && BLEU::algStatus == algorithmStatus::exact)
+		if (bbStatus == solutionStatus::feasible)
 		{
 			this->releaseTmpItems(Items);
 			return _bestLowerBound + increment;
 		}
-		else
+		// Fall back to combinatorial Benders as in the paper workflow when BB cannot close the node quickly.
+		auto bendersStatus = this->combinatorialBenders(Items, binWidth, binHeight, increment);
+		BLEU::algStatus = (BLEU::nodeLimitFlag && bendersStatus == solutionStatus::infeasible) ? algorithmStatus::approximate : BLEU::algStatus;
+		if (bendersStatus == solutionStatus::feasible)
 		{
-			if (BLEU::algStatus == algorithmStatus::exact)
-			{
-				increment++;
-			}
-			else return -1;
+			this->releaseTmpItems(Items);
+			return _bestLowerBound + increment;
 		}
-		//start = std::chrono::high_resolution_clock::now();
-		//solutionStatus status = this->combinatorialBenders(Items, binWidth, binHeight, increment);
-		//elapsedTimeBD += (std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now() - start)).count() / 1000000.0;
-		////std::cout << "result of the combinatorial benders is  " << status << "the height is "<<binHeight + _processedH<<std::endl;
-		//BLEU::algStatus = (BLEU::nodeLimitFlag && status == solutionStatus::infeasible) ? algorithmStatus::approximate : BLEU::algStatus;
-		//if (status == solutionStatus::feasible)
-		//{
-		//	this->releaseTmpItems(Items);
-		//	break;
-		//}
-		//else
-		//{
-		//	this->releaseTmpItems(Items);
-		//}
+		if (bendersStatus == solutionStatus::pending || BLEU::algStatus == algorithmStatus::approximate)
+		{
+			this->releaseTmpItems(Items);
+			return -1;
+		}
+		// infeasible for this height -> combinatorialBenders already updated increment.
+		this->releaseTmpItems(Items);
 	}
 }
 
@@ -195,11 +205,14 @@ bool StripPacking::BLEU::yCheckAlgorithm(const int t_processedW, const int t_Tri
 {
 	std::vector<coordinate> Cords4yCheck = itemPositions;
 	int binWidth = t_processedW;
-	//auto Items = this->preprocess4yCheck(binWidth, t_processedItems, Cords4yCheck, t_TrialHeight);
-	//bool result = (this->yCheckEnumerationTree(, Cords4yCheck, t_TrialHeight, binWidth) == solutionStatus::feasible);
-	//this->releaseTmpItems(Items);
-	bool result = (this->yCheckEnumerationTree(t_processedItems, itemPositions, t_TrialHeight
-	, t_processedW) == solutionStatus::feasible);
+	auto Items = this->preprocess4yCheck(binWidth, t_processedItems, Cords4yCheck, t_TrialHeight);
+	if (binWidth <= 0)
+	{
+		this->releaseTmpItems(Items);
+		return false;
+	}
+	bool result = (this->yCheckEnumerationTree(Items, Cords4yCheck, t_TrialHeight, binWidth) == solutionStatus::feasible);
+	this->releaseTmpItems(Items);
 	return result;
 }
 
@@ -214,18 +227,27 @@ StripPacking::solutionStatus StripPacking::BLEU::yCheckEnumerationTree(const std
 	const int t_Height, const int t_Width) const
 {
 	if (t_Width == 0) return solutionStatus::infeasible;			// it could happen when the very item ends at the current last column, then there will be no space for any merge
+	auto start = std::chrono::high_resolution_clock::now();
 	std::unique_ptr<BBNode> root(new BBNode(t_InterestItems, t_Cords, t_Width, t_Height));
 	std::stack<std::unique_ptr<BBNode>> yEnTree;
 	yEnTree.push(std::move(root));
 	int exploreNodes = 0;
 	while (!yEnTree.empty())
 	{
+		const double elapsed = (std::chrono::duration_cast<std::chrono::microseconds>(
+			std::chrono::high_resolution_clock::now() - start)).count() / 1000000.0;
+		if (elapsed > _timeLimit)
+		{
+			StripPacking::BLEU::nodeLimitFlag = true;
+			return solutionStatus::pending;
+		}
 		const auto currentNode = std::move(yEnTree.top());
 		yEnTree.pop();
 		if (currentNode->remainingItems.empty())
 		{
 			#ifdef DUMP_SOL
-			for (size_t i = 0; i < currentNode->itemPositions.size(); ++i)
+			const size_t lim = std::min(currentNode->itemPositions.size(), t_InterestItems.size());
+			for (size_t i = 0; i < lim; ++i)
 			{
 				_finalSolution.insert(std::pair<int, coordinate>(t_InterestItems[i]->idx, currentNode->itemPositions[i]));
 			}
@@ -553,6 +575,7 @@ const StripPacking::solutionStatus StripPacking::BLEU::branchAndBound(const std:
 	if (t_Items.empty()) return StripPacking::solutionStatus::feasible;
 	StripPacking::BLEU::nodeLimitFlag = false;
 	BLEU::algStatus = algorithmStatus::exact;
+	auto start = std::chrono::high_resolution_clock::now();
 	int tmpW = t_binWidth;
 	int tmpH = t_binHeight;
 	BLEU::interestingStatics = 0;
@@ -567,6 +590,12 @@ const StripPacking::solutionStatus StripPacking::BLEU::branchAndBound(const std:
 	int numberExploredNodes = 0;
 	while (!dfsTree.empty() && numberExploredNodes < maxExpNodes)
 	{
+		const double elapsed = (std::chrono::duration_cast<std::chrono::microseconds>(
+			std::chrono::high_resolution_clock::now() - start)).count() / 1000000.0;
+		if (elapsed > _timeLimit)
+		{
+			return solutionStatus::pending;
+		}
 		const auto currentNode = std::move(dfsTree.top());
 		dfsTree.pop();
 		// if it's a feasible solution then invoke the y-check algorithm
@@ -601,6 +630,7 @@ const StripPacking::solutionStatus StripPacking::BLEU::branchAndBoundYRelax(cons
 {
 	if (t_Items.empty()) return StripPacking::solutionStatus::feasible;
 	StripPacking::BLEU::nodeLimitFlag = false;
+	auto start = std::chrono::high_resolution_clock::now();
 	int tmpW = t_binWidth;
 	int tmpH = t_binHeight;
 	BLEU::interestingStatics = 0;
@@ -615,6 +645,12 @@ const StripPacking::solutionStatus StripPacking::BLEU::branchAndBoundYRelax(cons
 	int numberExploredNodes = 0;
 	while (!dfsTree.empty() && numberExploredNodes < maxExpNodes)
 	{
+		const double elapsed = (std::chrono::duration_cast<std::chrono::microseconds>(
+			std::chrono::high_resolution_clock::now() - start)).count() / 1000000.0;
+		if (elapsed > _timeLimit)
+		{
+			return solutionStatus::pending;
+		}
 		const auto currentNode = std::move(dfsTree.top());
 		dfsTree.pop();
 		// if it's a feasible solution return 
@@ -805,25 +841,17 @@ const bool StripPacking::BLEU::dynamicCuts(const std::unique_ptr<BBNode>& t_curr
 
 
 /*
-extract info from t_cplex to do y check
-Args:
-	1) t_allItems: the items considered in the algorithm
-	2) t_cplex: the cplex model 
-	3) t_allVars: a map of variables, key is the idx of items and value is the corresponding variable in the model
+extract x positions from a master-assignment vector
 */
 std::vector<StripPacking::coordinate> StripPacking::BLEU::extractInfo4Ycheck(const std::vector<const item*>& t_allItems,
-	const IloCplex& t_cplex, const IloArray<IloNumVarArray>& t_variables) const
+	const std::vector<int>& t_assignment) const
 {
 	std::vector<coordinate> result(t_allItems.size(), coordinate(0, 0));
-	for (int i = 0; i < t_variables.getSize(); ++i)
+	for (size_t i = 0; i < t_allItems.size(); ++i)
 	{
-		for (int j = 0; j < t_variables[i].getSize(); ++j)
+		if (i < t_assignment.size())
 		{
-			double varValue = t_cplex.getValue(t_variables[i][j]);
-			if (varValue >=1.0 - BLEU::tolerance)
-			{
-				result[t_allItems[i]->idxHelper].x = j;
-			}
+			result[t_allItems[i]->idxHelper].x = t_assignment[i];
 		}
 	}
 	return result;
@@ -854,62 +882,158 @@ const StripPacking::solutionStatus StripPacking::BLEU::combinatorialBenders(cons
 		mapPosWidth.insert(std::pair<int, std::set<int>>(t_Items[idx]->idx, possiblePositionsWidth));
 		mapPosHeight.insert(std::pair<int, std::set<int>>(t_Items[idx]->idx, possiblePositionsHeight));
 	}
-	// data preparation
-	std::set<int> allPositions;
-	for (const auto& it : mapPosWidth)
-		for (const auto& it2 : it.second)
-			allPositions.insert(it2);
-	IloEnv env;
-	IloModel model(env);
-	IloNumVar z(env, 0, IloInfinity, "ObjZ");
-	IloArray<IloNumVarArray> variables(env, t_Items.size());// i is the index in the t_Items, and j is the position
-	for (int i = 0; i < variables.getSize(); ++i)
+	std::vector<std::vector<int>> options(t_Items.size());
+	for (size_t i = 0; i < t_Items.size(); ++i)
 	{
-		variables[i] = IloNumVarArray(env, t_binWidth + 1, 0,1, ILOINT);
-		const item* tmp = t_Items[i];
-		IloExpr expr(env);
-		auto widthPos = mapPosWidth.find(tmp->idx)->second;
-		for (int j = 0; j < variables[i].getSize(); ++j)
-		{
-			variables[i][j].setName(getVarName(tmp->idx, j).c_str());
-			expr += variables[i][j];
-			if (widthPos.find(j) == widthPos.end())
-			{
-				model.add(variables[i][j] == 0);
-			}
-		}
-		model.add(expr == 1);
-		expr.end();
+		const auto& widthPos = mapPosWidth.find(t_Items[i]->idx)->second;
+		options[i].assign(widthPos.begin(), widthPos.end());
+		std::sort(options[i].begin(), options[i].end());
 	}
-	// second constraints set
-	
-	for (const auto q : allPositions)
-	{
-		IloExpr expr(env);
-		for (int i = 0; i < variables.getSize(); ++i)
+	std::vector<std::pair<std::vector<std::pair<int, int>>, int>> bendersCuts;
+	std::vector<int> bestAssignment(t_Items.size(), -1);
+	auto getHiGHSBinary = []() -> std::string {
+		const char* envPath = std::getenv("HIGHS_BIN");
+		if (envPath != nullptr && std::filesystem::exists(envPath)) return std::string(envPath);
+		const std::string vendored = "./third_party/highs/bin/highs";
+		if (std::filesystem::exists(vendored)) return vendored;
+		return "highs";
+	};
+	auto quotePath = [](const std::string& p) { return "\"" + p + "\""; };
+	auto buildLiftedCut = [&](const std::vector<int>& t_subsetItems, const std::vector<coordinate>& t_coords)
+		-> std::pair<std::vector<std::pair<int, int>>, int> {
+		std::pair<std::vector<std::pair<int, int>>, int> emptyResult;
+		if (t_subsetItems.empty()) return emptyResult;
+		std::vector<const item*> subset;
+		subset.reserve(t_subsetItems.size());
+		for (int idx : t_subsetItems)
 		{
-			const item* tmp = t_Items[i];
-			// calculate W(j, q)
-			for (int j =0; j<variables[i].getSize();++j)
+			auto ptr = allItemsMap.find(idx);
+			if (ptr == allItemsMap.end()) return emptyResult;
+			subset.push_back(ptr->second);
+		}
+		const std::string tag = "lift_" + std::to_string(::getpid()) + "_" + std::to_string(std::rand());
+		const std::string modelPath = "/tmp/" + tag + ".lp";
+		const std::string solPath = "/tmp/" + tag + ".sol";
+		const std::string logPath = "/tmp/" + tag + ".log";
+		std::ofstream lp(modelPath);
+		if (!lp.is_open()) return emptyResult;
+
+		// Compute overlap graph K^s(j).
+		std::vector<std::vector<int>> overlap(subset.size());
+		for (size_t a = 0; a < subset.size(); ++a)
+		{
+			int pa = t_coords[subset[a]->idxHelper].x;
+			int wa = subset[a]->width;
+			for (size_t b = 0; b < subset.size(); ++b)
 			{
-				if (j <= q && j >= q -tmp->width  + 1)
+				if (a == b) continue;
+				int pb = t_coords[subset[b]->idxHelper].x;
+				int wb = subset[b]->width;
+				if (std::max(pa, pb) < std::min(pa + wa, pb + wb))
 				{
-					expr += tmp->height*variables[i][j];
+					overlap[a].push_back(static_cast<int>(b));
 				}
 			}
 		}
-		model.add(expr <= z);
-		expr.end();
-	}
-	model.add(IloMinimize(env, z));
-	IloCplex cplex(env);
-	cplex.extract(model);
-	cplex.setOut(env.getNullStream());
-	cplex.setWarning(env.getNullStream());
-	cplex.setParam(IloCplex::Param::Preprocessing::RepeatPresolve, 3);
-	cplex.setParam(IloCplex::Param::Preprocessing::Reduce, 3);
-	cplex.setParam(IloCplex::Param::MIP::Strategy::Probe, 3);
-	cplex.setParam(IloCplex::Param::Preprocessing::Symmetry, 5);
+
+		lp << "Maximize\n obj:";
+		for (size_t a = 0; a < subset.size(); ++a)
+		{
+			lp << " + r_" << subset[a]->idxHelper << " - l_" << subset[a]->idxHelper;
+		}
+		lp << "\nSubject To\n";
+		for (size_t a = 0; a < subset.size(); ++a)
+		{
+			const auto* ja = subset[a];
+			for (int b : overlap[a])
+			{
+				const auto* ib = subset[static_cast<size_t>(b)];
+				// l_j + w_j >= r_i + 1  <=>  l_j - r_i >= 1 - w_j
+				lp << " ov_" << ja->idxHelper << "_" << ib->idxHelper << ": "
+					<< "l_" << ja->idxHelper << " - r_" << ib->idxHelper
+					<< " >= " << (1 - ja->width) << "\n";
+			}
+		}
+		lp << "Bounds\n";
+		for (const auto* it : subset)
+		{
+			int ps = t_coords[it->idxHelper].x;
+			int rmax = t_binWidth - it->width;
+			lp << " 0 <= l_" << it->idxHelper << " <= " << ps << "\n";
+			lp << " " << ps << " <= r_" << it->idxHelper << " <= " << rmax << "\n";
+		}
+		lp << "End\n";
+		lp.close();
+
+		std::ostringstream cmd;
+		cmd << quotePath(getHiGHSBinary())
+			<< " --model_file " << quotePath(modelPath)
+			<< " --solution_file " << quotePath(solPath)
+			<< " --solver simplex"
+			<< " > " << quotePath(logPath) << " 2>&1";
+		std::system(cmd.str().c_str());
+
+		std::ifstream sol(solPath);
+		if (!sol.is_open())
+		{
+			std::filesystem::remove(modelPath);
+			std::filesystem::remove(logPath);
+			return emptyResult;
+		}
+		std::map<int, double> lvals, rvals;
+		std::string line;
+		bool inPrimalColumns = false;
+		while (std::getline(sol, line))
+		{
+			if (line == "# Primal solution values") continue;
+			if (line.rfind("# Columns ", 0) == 0)
+			{
+				inPrimalColumns = true;
+				continue;
+			}
+			if (line.rfind("# Rows ", 0) == 0)
+			{
+				inPrimalColumns = false;
+				continue;
+			}
+			if (!inPrimalColumns) continue;
+			std::istringstream iss(line);
+			std::string var;
+			double val = 0.0;
+			if (!(iss >> var >> val)) continue;
+			if (var.rfind("l_", 0) == 0)
+			{
+				lvals[std::stoi(var.substr(2))] = val;
+			}
+			else if (var.rfind("r_", 0) == 0)
+			{
+				rvals[std::stoi(var.substr(2))] = val;
+			}
+		}
+		sol.close();
+		std::filesystem::remove(modelPath);
+		std::filesystem::remove(solPath);
+		std::filesystem::remove(logPath);
+
+		std::vector<std::pair<int, int>> liftedVars;
+		for (const auto* it : subset)
+		{
+			if (lvals.find(it->idxHelper) == lvals.end() || rvals.find(it->idxHelper) == rvals.end())
+				return emptyResult;
+			int lbar = static_cast<int>(std::ceil(lvals[it->idxHelper] - BLEU::tolerance));
+			int rbar = static_cast<int>(std::floor(rvals[it->idxHelper] + BLEU::tolerance));
+			const auto& feasPos = mapPosWidth.find(it->idx)->second;
+			for (int p = lbar; p <= rbar; ++p)
+			{
+				if (feasPos.find(p) != feasPos.end())
+					liftedVars.push_back(std::make_pair(it->idxHelper, p));
+			}
+		}
+		std::sort(liftedVars.begin(), liftedVars.end());
+		liftedVars.erase(std::unique(liftedVars.begin(), liftedVars.end()), liftedVars.end());
+		if (liftedVars.empty()) return emptyResult;
+		return std::make_pair(liftedVars, static_cast<int>(subset.size()) - 1);
+	};
 	auto start = std::chrono::high_resolution_clock::now();
 	double elapsedTimeBD = 0.0;
 	while (true)
@@ -917,56 +1041,69 @@ const StripPacking::solutionStatus StripPacking::BLEU::combinatorialBenders(cons
 		elapsedTimeBD = (std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now() - start)).count() / 1000000.0;
 		if (elapsedTimeBD > _timeLimit)
 		{
-			env.end();
 			t_increment += 1;
 			BLEU::algStatus = algorithmStatus::approximate;
 			return solutionStatus::pending;
 		}
-		cplex.setParam(IloCplex::Param::TimeLimit, _timeLimit- elapsedTimeBD);
-		cplex.solve();
-		//std::cout << "mip status is " << cplex.getCplexStatus() << std::endl;
-		if (cplex.getCplexStatus() == IloCplex::CplexStatus::AbortTimeLim)
+
+		const auto masterResult = StripPacking::solveMasterWithHiGHS(
+			t_Items,
+			options,
+			t_binWidth,
+			bendersCuts,
+			_timeLimit - elapsedTimeBD,
+			true);
+		if (masterResult.status == MasterSolveStatus::time_limit || masterResult.status == MasterSolveStatus::error)
 		{
-			env.end();
 			t_increment += 1;
 			BLEU::algStatus = algorithmStatus::approximate;
 			return solutionStatus::pending;
 		}
-		if (cplex.getStatus() == IloAlgorithm::Status::Infeasible)
+		if (masterResult.status == MasterSolveStatus::infeasible)
 		{
-			env.end();
 			t_increment += 1;
 			return solutionStatus::infeasible;
-		}	
-		double obj = cplex.getObjValue();
+		}
+		bestAssignment = masterResult.assignment;
+		const int bestObj = static_cast<int>(std::round(masterResult.objective));
+		if (elapsedTimeBD > _timeLimit)
+		{
+			t_increment += 1;
+			BLEU::algStatus = algorithmStatus::approximate;
+			return solutionStatus::pending;
+		}
+		double obj = bestObj;
 		if (obj <= t_binHeight)
 		{
 			// do y check 
-			std::vector<coordinate> coordinates = this->extractInfo4Ycheck(t_Items, cplex, variables);
+			std::vector<coordinate> coordinates = this->extractInfo4Ycheck(t_Items, bestAssignment);
 			if (this->yCheckAlgorithm(t_binWidth, t_binHeight, coordinates, t_Items))
 			{
-				env.end();
 				return solutionStatus::feasible;
 			}
 			else
 			{ 
 				//// add a combinatorial cut
 				const std::vector<std::vector<int>> subsetItems = this->findSubset(t_binHeight, t_binWidth, t_Items, coordinates, allItemsMap);
-				for (size_t i = 0; i < subsetItems.size(); ++i)
-				{
-					std::vector<IloNumVar> selectedVars;
-					for (const auto& it : subsetItems[i])
+					for (size_t i = 0; i < subsetItems.size(); ++i)
 					{
-						const item* tmp = allItemsMap.find(it)->second;
-						selectedVars.push_back(variables[tmp->idxHelper][coordinates[tmp->idxHelper].x]);
+						std::vector<std::pair<int, int>> selectedVars;
+						for (const auto& it : subsetItems[i])
+						{
+							const item* tmp = allItemsMap.find(it)->second;
+							selectedVars.push_back(std::make_pair(tmp->idxHelper, coordinates[tmp->idxHelper].x));
+						}
+						this->addBendersCut(bendersCuts, selectedVars, static_cast<int>(subsetItems[i].size()) - 1);
+						auto liftedCut = buildLiftedCut(subsetItems[i], coordinates);
+						if (!liftedCut.first.empty())
+						{
+							this->addBendersCut(bendersCuts, liftedCut.first, liftedCut.second);
+						}
 					}
-					this->addBendersCut(cplex, t_Items, variables, selectedVars);
 				}
 			}
-		}
 		else
 		{
-			env.end();
 			t_increment += 1;
 			return solutionStatus::infeasible;
 		}
@@ -974,16 +1111,10 @@ const StripPacking::solutionStatus StripPacking::BLEU::combinatorialBenders(cons
 }
 
 
-void StripPacking::BLEU::addBendersCut(IloCplex& t_cplex, const std::vector<const item*>& t_allItems,
-	const IloArray<IloNumVarArray>& t_variables, const std::vector<IloNumVar>& t_selectedVars) const
+void StripPacking::BLEU::addBendersCut(std::vector<std::pair<std::vector<std::pair<int, int>>, int>>& t_cuts,
+	const std::vector<std::pair<int, int>>& t_selectedVars, int t_rhs) const
 {
-	IloExpr bendersCut(t_cplex.getModel().getEnv());
-	for (const auto& it : t_selectedVars)
-	{
-		bendersCut += it;
-	}
-	t_cplex.getModel().add(bendersCut <= int(t_selectedVars.size()) - 1);
-	bendersCut.end();
+	t_cuts.push_back(std::make_pair(t_selectedVars, t_rhs));
 }
 
 /*
@@ -994,16 +1125,17 @@ const std::vector<std::vector<int>> StripPacking::BLEU::findSubset(const int t_b
 	const std::vector<coordinate>& t_Cords, const std::map<int, const item*>& t_allItemsMap) const
 {
 	std::vector<std::vector<int>> result;
+	std::unordered_map<std::string, bool> yCheckCache;
+	static std::unordered_map<int, int> successScore;
 	std::vector<int> wholeSet;
 	for (const auto& it : t_allItems) wholeSet.push_back(it->idx);
 	// first step vertical cuts
 	result = this->verticalCuts(t_binHeight, t_binWidth, t_allItems, t_Cords);
 	if (result.empty()) result.push_back(wholeSet);
 	// second step
-	result = this->findSubSetSecondStep(t_binWidth, t_binHeight, result, t_allItemsMap, t_Cords);
-	// second step
-//		 third step
-	//result = this->findSubSetThirdStep(t_binWidth, t_binHeight, result, t_allItemsMap, t_Cords);
+	result = this->findSubSetSecondStep(t_binWidth, t_binHeight, result, t_allItemsMap, t_Cords, yCheckCache);
+	// third step
+	result = this->findSubSetThirdStep(t_binWidth, t_binHeight, result, t_allItemsMap, t_Cords, yCheckCache, successScore);
 	return result;
 }
 
@@ -1134,7 +1266,7 @@ const std::set<int> StripPacking::BLEU::getRemovedItems(const int t_Column, cons
 
 /*
 Given a subset of items and the whole coordinates, return the columns containing the subset
-Args£º
+ArgsÂ£Âº
 	t_subset: the subset of items
 	t_Cords: the coordinates of all items
 */
@@ -1158,7 +1290,8 @@ const std::vector<int> StripPacking::BLEU::getColumnsFromSubset(const std::vecto
 
 
 std::vector<std::vector<int>> StripPacking::BLEU::findSubSetSecondStep(const int t_binWidth, const int t_binHeight,const std::vector<std::vector<int>>& t_currentSubSets,
-	const std::map<int, const item*>& t_allItemsMap, const std::vector<coordinate>& t_Cords) const
+	const std::map<int, const item*>& t_allItemsMap, const std::vector<coordinate>& t_Cords,
+	std::unordered_map<std::string, bool>& t_yCheckCache) const
 {
 	std::vector<std::vector<int>> result;
 	for (const auto& it : t_currentSubSets)
@@ -1174,7 +1307,7 @@ std::vector<std::vector<int>> StripPacking::BLEU::findSubSetSecondStep(const int
 			auto removedItems = this->getRemovedItems(i, processingsubset, t_Cords, t_allItemsMap);
 			if (removedItems.empty()) continue;
 			std::vector<const item*> itemsYcheck;
-			auto candidate =  this->attemptRemove(t_binHeight, t_binWidth, processingsubset, removedItems, t_Cords, t_allItemsMap);
+			auto candidate =  this->attemptRemove(t_binHeight, t_binWidth, processingsubset, removedItems, t_Cords, t_allItemsMap, t_yCheckCache);
 			if (candidate.size() < processingsubset.size()) processingsubset = candidate;
 			else	break;		// go from the right-hand side
 		}
@@ -1187,7 +1320,7 @@ std::vector<std::vector<int>> StripPacking::BLEU::findSubSetSecondStep(const int
 			auto removedItems = this->getRemovedItems(i, processingsubset, t_Cords, t_allItemsMap);
 			if (removedItems.empty()) continue;
 			std::vector<const item*> itemsYcheck;
-			auto candidate = this->attemptRemove(t_binHeight, t_binWidth, processingsubset, removedItems, t_Cords, t_allItemsMap);
+			auto candidate = this->attemptRemove(t_binHeight, t_binWidth, processingsubset, removedItems, t_Cords, t_allItemsMap, t_yCheckCache);
 			if (candidate.size() < processingsubset.size()) processingsubset = candidate;
 			else
 			{
@@ -1202,34 +1335,86 @@ std::vector<std::vector<int>> StripPacking::BLEU::findSubSetSecondStep(const int
 
 
 std::vector<std::vector<int>> StripPacking::BLEU::findSubSetThirdStep(const int t_binWidth, const int t_binHeight, const std::vector<std::vector<int>>& t_currentSubSets,
-	const std::map<int, const item*>& t_allItemsMap, const std::vector<coordinate>& t_Cords) const
+	const std::map<int, const item*>& t_allItemsMap, const std::vector<coordinate>& t_Cords,
+	std::unordered_map<std::string, bool>& t_yCheckCache, std::unordered_map<int, int>& t_successScore) const
 {
 	std::vector<std::vector<int>> result;
+	auto cacheKey = [&](const std::vector<int>& t_subset) {
+		std::vector<int> sorted = t_subset;
+		std::sort(sorted.begin(), sorted.end());
+		std::string key;
+		key.reserve(sorted.size() * 6);
+		for (int x : sorted) key += std::to_string(x) + ",";
+		return key;
+	};
+	auto yCheckBySubset = [&](const std::vector<int>& t_subset) {
+		auto key = cacheKey(t_subset);
+		auto ptr = t_yCheckCache.find(key);
+		if (ptr != t_yCheckCache.end()) return ptr->second;
+		std::vector<const item*> itemsYcheck;
+		itemsYcheck.reserve(t_subset.size());
+		for (int idx : t_subset)
+		{
+			auto it = t_allItemsMap.find(idx);
+			if (it != t_allItemsMap.end()) itemsYcheck.push_back(it->second);
+		}
+		bool feasible = this->yCheckAlgorithm(t_binWidth, t_binHeight, t_Cords, itemsYcheck);
+		t_yCheckCache[key] = feasible;
+		return feasible;
+	};
+
 	for (const auto& it : t_currentSubSets)
 	{
-		std::vector<const item*> removingItems;
-		for (const auto & jt : it) removingItems.push_back(t_allItemsMap.find(jt)->second);
-		std::sort(removingItems.begin(), removingItems.end(), compareItemByArea);
-		std::vector<const item*> processingItems = removingItems;
-		for (size_t i = 0; i<removingItems.size(); ++i)
+		std::vector<const item*> baseItems;
+		baseItems.reserve(it.size());
+		for (const auto & jt : it) baseItems.push_back(t_allItemsMap.find(jt)->second);
+		std::vector<std::vector<const item*>> attempts;
+		// attempt 1: non-decreasing area
+		auto byArea = baseItems;
+		std::sort(byArea.begin(), byArea.end(), compareItemByArea);
+		attempts.push_back(byArea);
+		// attempt 2: non-decreasing success score
+		auto byScore = baseItems;
+		std::sort(byScore.begin(), byScore.end(), [&](const item* a, const item* b) {
+			int sa = (t_successScore.find(a->idx) == t_successScore.end()) ? 0 : t_successScore[a->idx];
+			int sb = (t_successScore.find(b->idx) == t_successScore.end()) ? 0 : t_successScore[b->idx];
+			if (sa != sb) return sa < sb;
+			return a->idx < b->idx;
+		});
+		attempts.push_back(byScore);
+		// attempt 3: random order, 10 tries
+		std::mt19937 gen(1234567);
+		for (int r = 0; r < 10; ++r)
 		{
-			// remove the items
-			for (auto pt = processingItems.begin(); pt != processingItems.end(); ++pt)
-			{
-				if ((*pt)->idx == removingItems[i]->idx)
-				{
-					processingItems.erase(pt);
-					break;
-				}
-			}
-			if (this->yCheckAlgorithm(t_binWidth, t_binHeight, t_Cords, processingItems))
-			{
-				processingItems.push_back(removingItems[i]);
-			}	
+			auto rnd = baseItems;
+			std::shuffle(rnd.begin(), rnd.end(), gen);
+			attempts.push_back(rnd);
 		}
-		std::vector<int> tmpVec;
-		for (const auto & jt : processingItems) tmpVec.push_back(jt->idx);
-		result.push_back(tmpVec);
+
+		std::vector<int> bestSubset = it;
+		for (const auto& removingItems : attempts)
+		{
+			std::vector<int> processingSubset = it;
+			for (size_t i = 0; i < removingItems.size(); ++i)
+			{
+				std::vector<int> candidate;
+				candidate.reserve(processingSubset.size());
+				for (int idx : processingSubset)
+				{
+					if (idx != removingItems[i]->idx) candidate.push_back(idx);
+				}
+				if (yCheckBySubset(candidate))
+				{
+					// feasible => removed item is needed
+					continue;
+				}
+				// infeasible => keep item removed
+				processingSubset.swap(candidate);
+				t_successScore[removingItems[i]->idx] += 1;
+			}	
+			if (processingSubset.size() < bestSubset.size()) bestSubset = processingSubset;
+		}
+		result.push_back(bestSubset);
 	}
 	return result;
 }
@@ -1240,7 +1425,8 @@ given a set of removed Items and check if removed, a given range of columns are 
 
 std::vector<int> StripPacking::BLEU::attemptRemove(const int t_binHeight, const int t_binWidth, const std::vector<int>& t_processingsubset,
 	const std::set<int>& t_removedItems,
-	const std::vector<coordinate>& t_Cords, const std::map<int, const item*>& t_allItemsMap) const
+	const std::vector<coordinate>& t_Cords, const std::map<int, const item*>& t_allItemsMap,
+	std::unordered_map<std::string, bool>& t_yCheckCache) const
 {
 	std::vector<int> result = t_processingsubset;
 	std::vector<const item*> itemsYcheck;
@@ -1252,7 +1438,21 @@ std::vector<int> StripPacking::BLEU::attemptRemove(const int t_binHeight, const 
 			itemsYcheck.push_back(tmpItem);
 		}
 	}
-	if (!this->yCheckAlgorithm(t_binWidth, t_binHeight, t_Cords, itemsYcheck))
+	std::vector<int> idxVec;
+	idxVec.reserve(itemsYcheck.size());
+	for (const auto* jt : itemsYcheck) idxVec.push_back(jt->idx);
+	std::sort(idxVec.begin(), idxVec.end());
+	std::string key;
+	for (int x : idxVec) key += std::to_string(x) + ",";
+	bool feasible;
+	auto ptr = t_yCheckCache.find(key);
+	if (ptr != t_yCheckCache.end()) feasible = ptr->second;
+	else
+	{
+		feasible = this->yCheckAlgorithm(t_binWidth, t_binHeight, t_Cords, itemsYcheck);
+		t_yCheckCache[key] = feasible;
+	}
+	if (!feasible)
 	{
 		result.clear();
 		for (const auto & jt : itemsYcheck) result.push_back(jt->idx);
@@ -1562,110 +1762,159 @@ Solve a noncontiguous packing problem (NCBP)
 */
 const int StripPacking::BLEU::LowerBound4()const
 {
-	std::vector<int> allWidths;
-	int colIdx = 0;
-	// initialize columns
-	std::list<std::set<int>> columns;			// a collection of columns		a column is a set of item index
-	for (size_t i=0; i< _processedItems.size(); ++i)
-	{
-		std::set<int> tmp;
-		tmp.insert(_processedItems[i]->idx);
-		columns.push_back(tmp);
-		allWidths.push_back(_processedItems[i]->width);
-	}
-	// model the LP
-	IloEnv env;
-	IloModel NCBP(env);
-	std::map<int, IloRange> allCstrs;
-	// add constraints
+	if (_processedItems.empty()) return _processedH;
+
+	// Build initial singleton patterns: one pattern per item.
+	std::vector<std::vector<int>> patterns;
+	patterns.reserve(_processedItems.size());
 	for (size_t i = 0; i < _processedItems.size(); ++i)
 	{
-		char nameCstr[64];
-		sprintf_s(nameCstr, 64, "Cstr %d", _processedItems[i]->idx);
-		IloExpr expr(env);
-		IloRange cstr(env, _processedItems[i]->height, expr, IloInfinity, nameCstr);
-		allCstrs.insert(std::pair<int, IloRange>(_processedItems[i]->idx, cstr));
-		NCBP.add(cstr);
-		expr.end();
+		patterns.push_back(std::vector<int>{static_cast<int>(i)});
 	}
-	// add the variables and the objective function
-	IloExpr obj(env);
-	for (const auto& i_it : columns)
+	std::vector<int> allWidths;
+	allWidths.reserve(_processedItems.size());
+	for (const auto* it : _processedItems) allWidths.push_back(it->width);
+
+	auto getHiGHSBinary = []() -> std::string {
+		const char* envPath = std::getenv("HIGHS_BIN");
+		if (envPath != nullptr && std::filesystem::exists(envPath)) return std::string(envPath);
+		const std::string vendored = "./third_party/highs/bin/highs";
+		if (std::filesystem::exists(vendored)) return vendored;
+		return "highs";
+	};
+	auto quote = [](const std::string& p) { return "\"" + p + "\""; };
+
+	while (true)
 	{
-		IloNumColumn col(env);
-		for (const auto& j_it : i_it)
+		const std::string tag = "lb4_" + std::to_string(::getpid()) + "_" + std::to_string(std::rand());
+		const std::string modelPath = "/tmp/" + tag + ".lp";
+		const std::string solPath = "/tmp/" + tag + ".sol";
+		const std::string logPath = "/tmp/" + tag + ".log";
+
+		std::ofstream lp(modelPath);
+		if (!lp.is_open()) return this->LowerBound1();
+		lp << "Minimize\n";
+		lp << " obj:";
+		for (size_t p = 0; p < patterns.size(); ++p) lp << " + x_" << p;
+		lp << "\nSubject To\n";
+		for (size_t i = 0; i < _processedItems.size(); ++i)
 		{
-			auto ptr = allCstrs.find(j_it);
-			if (ptr != allCstrs.end()) col += ptr->second(1);
-		}
-		char varName[64];
-		sprintf_s(varName, 64, "Var %d", colIdx++);
-		IloNumVar var(col);
-		var.setName(varName);
-		var.setBounds(0, +IloInfinity);
-		NCBP.add(var);
-		col.end();
-		obj += var;
-	}
-	IloObjective realObj = IloMinimize(env, obj);
-	NCBP.add(realObj);
-	obj.end();
-	try {
-		IloCplex cplex(NCBP);
-		cplex.setOut(env.getNullStream());
-		cplex.setWarning(env.getNullStream());
-		while (true)
-		{
-			cplex.solve();
-			//cplex.exportModel("NCBP.lp");
-			// solve the pricing problem
-			std::vector<IloNum> dualValues;
-			for (size_t i=0; i<_processedItems.size(); ++i)
-				dualValues.push_back(cplex.getDual(allCstrs.find(_processedItems[i]->idx)->second));
-			std::vector<int> selectedItems;
-			double value = dynamicPrg4KnapSack(dualValues, allWidths, _processedW, selectedItems);
-			if (1.0 - value < - BLEU::tolerance)		// negative reduced cost
+			lp << " c_" << i << ":";
+			bool any = false;
+			for (size_t p = 0; p < patterns.size(); ++p)
 			{
-				// add a column
-				std::set<int> newCol;
-				for (const auto& it : selectedItems) newCol.insert(_processedItems[it]->idx);
-				IloNumColumn col(env);
-				for (const auto& it : newCol)
+				const auto& pat = patterns[p];
+				if (std::find(pat.begin(), pat.end(), static_cast<int>(i)) != pat.end())
 				{
-					auto ptr = allCstrs.find(it);
-					if (ptr != allCstrs.end()) 
-						col += ptr->second(1);
+					lp << " + x_" << p;
+					any = true;
 				}
-				char varName[64];
-				sprintf_s(varName, 64, "Var %d", colIdx++);
-				IloNumVar var(col);
-				var.setName(varName);
-				var.setBounds(0, +IloInfinity);
-				NCBP.add(var);
-				realObj.setLinearCoef(var, 1.0);
 			}
-			else
+			if (!any) lp << " 0";
+			lp << " >= " << _processedItems[i]->height << "\n";
+		}
+		lp << "Bounds\n";
+		for (size_t p = 0; p < patterns.size(); ++p) lp << " 0 <= x_" << p << "\n";
+		lp << "End\n";
+		lp.close();
+
+		std::ostringstream cmd;
+		cmd << quote(getHiGHSBinary())
+			<< " --model_file " << quote(modelPath)
+			<< " --solution_file " << quote(solPath)
+			<< " --solver simplex"
+			<< " > " << quote(logPath) << " 2>&1";
+		const int rc = std::system(cmd.str().c_str());
+		(void)rc;
+
+		std::ifstream sol(solPath);
+		if (!sol.is_open())
+		{
+			std::filesystem::remove(modelPath);
+			std::filesystem::remove(logPath);
+			return this->LowerBound1();
+		}
+
+		double objValue = -1.0;
+		std::vector<double> dualValues(_processedItems.size(), 0.0);
+		std::string line;
+		enum class ParseSection { none, primal, dual, basis };
+		ParseSection section = ParseSection::none;
+		bool parseRows = false;
+		while (std::getline(sol, line))
+		{
+			if (line.rfind("Objective ", 0) == 0)
 			{
-				double objValue = cplex.getObjValue();
-				env.end();
-				double lowerBound;
-				std::modf(objValue, &lowerBound);
-				if (objValue - lowerBound > BLEU::tolerance)
-					return lowerBound + 1 + _processedH;
-				else
-					return lowerBound + _processedH;	
+				objValue = std::stod(line.substr(std::string("Objective ").size()));
+				continue;
+			}
+			if (line == "# Primal solution values")
+			{
+				section = ParseSection::primal;
+				parseRows = false;
+				continue;
+			}
+			if (line == "# Dual solution values")
+			{
+				section = ParseSection::dual;
+				parseRows = false;
+				continue;
+			}
+			if (line == "# Basis")
+			{
+				section = ParseSection::basis;
+				parseRows = false;
+				continue;
+			}
+			if (line.rfind("# Rows ", 0) == 0)
+			{
+				parseRows = true;
+				continue;
+			}
+			if (line.rfind("# Columns ", 0) == 0)
+			{
+				parseRows = false;
+				continue;
+			}
+			if (section == ParseSection::dual && parseRows && line.rfind("c_", 0) == 0)
+			{
+				std::istringstream iss(line);
+				std::string cname;
+				double val = 0.0;
+				if (!(iss >> cname >> val)) continue;
+				if (cname.rfind("c_", 0) == 0)
+				{
+					const int idx = std::stoi(cname.substr(2));
+					if (0 <= idx && idx < static_cast<int>(dualValues.size()))
+					{
+						dualValues[idx] = val;
+					}
+				}
 			}
 		}
-		// add columns
-		// return the solution
+		sol.close();
+		std::filesystem::remove(modelPath);
+		std::filesystem::remove(solPath);
+		std::filesystem::remove(logPath);
+		if (objValue < 0.0) return this->LowerBound1();
+
+		std::vector<int> selectedItems;
+		double value = dynamicPrg4KnapSack(dualValues, allWidths, _processedW, selectedItems);
+		if (1.0 - value < -BLEU::tolerance)
+		{
+			// negative reduced cost column found
+			if (!selectedItems.empty())
+			{
+				patterns.push_back(selectedItems);
+				continue;
+			}
+		}
+		double lowerBoundPart = 0.0;
+		std::modf(objValue, &lowerBoundPart);
+		if (objValue - lowerBoundPart > BLEU::tolerance)
+			return static_cast<int>(lowerBoundPart + 1 + _processedH);
+		return static_cast<int>(lowerBoundPart + _processedH);
 	}
-	catch (IloException & e)
-	{
-		std::cout << "NCBP error\n";
-		std::cout << e<< std::endl;
-		return -1;
-	}
-	
 }
 
 /*
@@ -1761,6 +2010,7 @@ const	 double StripPacking::BLEU::DualFeasibleFunction3(const int t_alpha, const
 		return std::floor(_processedW / double(t_alpha));
 	if (t_width < (_processedW / 2.0))
 		return 2 * std::floor(t_width / double(t_alpha));
+	return 0.0;
 }
 
 

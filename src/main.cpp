@@ -1,5 +1,5 @@
 #include "datareader.h"
-#include <experimental/filesystem>
+#include <filesystem>
 #include <string>
 #include "spp.h"
 #include <iostream>
@@ -10,30 +10,39 @@
 int main()
 {
 	const std::string instancesFolder = "./2sp/";
-	for (int i = 0; i < 1; ++i) {
-
-	
-	for (const auto& entry : std::experimental::filesystem::directory_iterator(instancesFolder))
+	const int solverTimeLimitSeconds = 60;
+	if (!std::filesystem::exists(instancesFolder))
+	{
+		std::cerr << "Input folder not found: " << instancesFolder << "\n";
+		return 1;
+	}
+	for (const auto& entry : std::filesystem::directory_iterator(instancesFolder))
 	{
 		std::string filePath = entry.path().relative_path().string();
-		std::cout << filePath;
+		std::cout << filePath << "\n";
 		
 		std::vector<const StripPacking::item*> allItems;
 		StripPacking::Heuristic hrs;
 		int W = readData(filePath, allItems);
 		std::vector<const StripPacking::item*> copyItems(allItems.begin(), allItems.end());
 		int totalArea = 0;
-	    StripPacking::BLEU alg(allItems,W,40,100.0);
-		auto status = alg.evaluate();
-		std::cout << "the status is " << status<<"\n";
+		StripPacking::BLEU::algStatus = StripPacking::algorithmStatus::exact;
+	    StripPacking::BLEU alg(allItems, W, solverTimeLimitSeconds);
+		auto height = alg.takeOff();
+		if (height >= 0)
+		{
+			std::cout << "best_height=" << height << " status=feasible";
+		}
+		else
+		{
+			std::cout << "best_height=unknown status=pending_or_timeout";
+		}
+		std::cout << " alg_status=" << static_cast<int>(StripPacking::BLEU::algStatus) << "\n";
 		#ifdef DUMP_SOL
-		std::vector<std::string> splitted;
-		splitString(filePath, "\\", splitted);
-		alg.dumpSolution((splitted[2]));
+		alg.dumpSolution(entry.path().filename().string());
 		#endif
 		for (auto it = allItems.begin(); it != allItems.end(); ++it)
 			delete (*it);
 	}
-	}
-	system("pause");
+	return 0;
 }

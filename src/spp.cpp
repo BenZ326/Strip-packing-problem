@@ -1,8 +1,11 @@
 #include "spp.h"
+#include "master_milp.h"
 #include <algorithm>
 #include <list>
 #include <set>
-#include <ilcplex/ilocplex.h>
+#include <functional>
+#include <limits>
+#include <cmath>
 
 /*
 The paper section 2.1 (1) and (2)
@@ -28,16 +31,20 @@ idxHelper(t_idxHelper)
 std::set<int> StripPacking::computeFX(const int t_x,  const int t_idx,
 	const std::vector<const StripPacking::item*>& t_items, bool flag)
 {
+	if (t_x < 0 || t_items.empty())
+	{
+		return std::set<int>();
+	}
 	std::vector<std::vector<int>> res;
 	for (size_t i = 0; i < t_items.size(); ++i)
 	{
-		std::vector<int> tmp(t_x+1, 0);
+		std::vector<int> tmp(static_cast<size_t>(t_x + 1), 0);
 		res.push_back(tmp);
 	}
-	for (size_t j = 1; j <= t_x; ++j) res[0][j] = 0;
+	for (int j = 1; j <= t_x; ++j) res[0][static_cast<size_t>(j)] = 0;
 	for (size_t i = 0; i < t_items.size(); ++i) res[i][0] = 1;
 	int itemIdx;
-	for (size_t j = 1; j <= t_x; ++j)		// W 
+	for (int j = 1; j <= t_x; ++j)		// W 
 	{
 		for (size_t i = 1; i < t_items.size(); ++i)
 		{
@@ -46,21 +53,21 @@ std::set<int> StripPacking::computeFX(const int t_x,  const int t_idx,
 			if (flag)
 			{
 				int diff = j - t_items[itemIdx]->width;
-				if ((diff) < 0) res[i][j] = res[i - 1][j];
-				else res[i][j] = std::max(res[i - 1][j], res[i - 1][j - t_items[itemIdx]->width]);
+				if ((diff) < 0) res[i][static_cast<size_t>(j)] = res[i - 1][static_cast<size_t>(j)];
+				else res[i][static_cast<size_t>(j)] = std::max(res[i - 1][static_cast<size_t>(j)], res[i - 1][static_cast<size_t>(j - t_items[itemIdx]->width)]);
 			}
 			else
 			{
 				int diff = j - t_items[itemIdx]->height;
-				if ((diff) < 0) res[i][j] = res[i - 1][j];
-				else res[i][j] = std::max(res[i - 1][j], res[i - 1][j - t_items[itemIdx]->height]);
+				if ((diff) < 0) res[i][static_cast<size_t>(j)] = res[i - 1][static_cast<size_t>(j)];
+				else res[i][static_cast<size_t>(j)] = std::max(res[i - 1][static_cast<size_t>(j)], res[i - 1][static_cast<size_t>(j - t_items[itemIdx]->height)]);
 			}
 		}
 	}
 	std::set<int> possiblePositions;
-	for (size_t j = 0; j <= t_x; ++j)
+	for (int j = 0; j <= t_x; ++j)
 	{
-		if (res[res.size() - 1][j]  == 1) possiblePositions.insert(j);
+		if (res[res.size() - 1][static_cast<size_t>(j)]  == 1) possiblePositions.insert(j);
 	}
 	return possiblePositions;
 }
@@ -69,16 +76,20 @@ std::set<int> StripPacking::computeFX(const int t_x,  const int t_idx,
 std::set<int> StripPacking::computeFX(const int t_x, const int t_idx,
 	const std::vector<StripPacking::item*>& t_items, bool flag)
 {
+	if (t_x < 0 || t_items.empty())
+	{
+		return std::set<int>();
+	}
 	std::vector<std::vector<int>> res;
 	for (size_t i = 0; i < t_items.size(); ++i)
 	{
-		std::vector<int> tmp(t_x + 1, 0);
+		std::vector<int> tmp(static_cast<size_t>(t_x + 1), 0);
 		res.push_back(tmp);
 	}
-	for (size_t j = 1; j <= t_x; ++j) res[0][j] = 0;
+	for (int j = 1; j <= t_x; ++j) res[0][static_cast<size_t>(j)] = 0;
 	for (size_t i = 0; i < t_items.size(); ++i) res[i][0] = 1;
 	int itemIdx;
-	for (size_t j = 1; j <= t_x; ++j)		// W 
+	for (int j = 1; j <= t_x; ++j)		// W 
 	{
 		for (size_t i = 1; i < t_items.size(); ++i)
 		{
@@ -87,21 +98,21 @@ std::set<int> StripPacking::computeFX(const int t_x, const int t_idx,
 			if (flag)
 			{
 				int diff = j - t_items[itemIdx]->width;
-				if ((diff) < 0) res[i][j] = res[i - 1][j];
-				else res[i][j] = std::max(res[i - 1][j], res[i - 1][j - t_items[itemIdx]->width]);
+				if ((diff) < 0) res[i][static_cast<size_t>(j)] = res[i - 1][static_cast<size_t>(j)];
+				else res[i][static_cast<size_t>(j)] = std::max(res[i - 1][static_cast<size_t>(j)], res[i - 1][static_cast<size_t>(j - t_items[itemIdx]->width)]);
 			}
 			else
 			{
 				int diff = j - t_items[itemIdx]->height;
-				if ((diff) < 0) res[i][j] = res[i - 1][j];
-				else res[i][j] = std::max(res[i - 1][j], res[i - 1][j - t_items[itemIdx]->height]);
+				if ((diff) < 0) res[i][static_cast<size_t>(j)] = res[i - 1][static_cast<size_t>(j)];
+				else res[i][static_cast<size_t>(j)] = std::max(res[i - 1][static_cast<size_t>(j)], res[i - 1][static_cast<size_t>(j - t_items[itemIdx]->height)]);
 			}
 		}
 	}
 	std::set<int> possiblePositions;
-	for (size_t j = 0; j <= t_x; ++j)
+	for (int j = 0; j <= t_x; ++j)
 	{
-		if (res[res.size() - 1][j] == 1) possiblePositions.insert(j);
+		if (res[res.size() - 1][static_cast<size_t>(j)] == 1) possiblePositions.insert(j);
 	}
 	return possiblePositions;
 }
@@ -124,75 +135,83 @@ Build the contiguity parallel machine scheduling problem as a lower bound for th
 double StripPacking::solve(const std::vector<const StripPacking::item*>& t_allItems, const std::map<int, std::set<int>>& t_mapPosWidth,
 	const std::map<int, std::set<int>>& t_mapPosHeight, const bool t_Integer)
 {
-	// data preparation
+	(void)t_mapPosHeight;
+	(void)t_Integer;
 	std::set<int> allPositions;
 	for (const auto& it : t_mapPosWidth)
 		for (const auto& it2 : it.second)
 			allPositions.insert(it2);
-	IloEnv env;
-	IloModel model(env);
-	std::map<std::string, IloNumVar> allVars;
-	// first constraints set
-	for (const auto& it : t_allItems)
+	int stripWidth = 0;
+	std::vector<std::vector<int>> options(t_allItems.size());
+	for (size_t i = 0; i < t_allItems.size(); ++i)
 	{
-		IloExpr expr(env);
-		for (const auto& it2 : t_mapPosWidth.find(it->idx)->second)
+		const auto* it = t_allItems[i];
+		const auto& possible = t_mapPosWidth.find(it->idx)->second;
+		options[i].assign(possible.begin(), possible.end());
+		std::sort(options[i].begin(), options[i].end());
+		if (!options[i].empty())
 		{
-			auto varName = StripPacking::getVarName(it->idx, it2);
-			if (t_Integer)
-			{
-				IloNumVar var(env, 0, 1, ILOINT, varName.c_str());
-				allVars.insert(std::pair<std::string, IloNumVar>(varName, var));
-				expr += var;
-			}
-			else
-			{
-				IloNumVar var(env, 0, 1, ILOFLOAT, varName.c_str());
-				allVars.insert(std::pair<std::string, IloNumVar>(varName, var));
-				expr += var;
-			}
+			stripWidth = std::max(stripWidth, options[i].back() + it->width);
+		}
+	}
+	if (stripWidth == 0) return 0.0;
+	const auto milpResult = StripPacking::solveMasterWithHiGHS(
+		t_allItems,
+		options,
+		stripWidth,
+		std::vector<std::pair<std::vector<std::pair<int, int>>, int>>(),
+		60.0,
+		t_Integer);
+	if (milpResult.status == StripPacking::MasterSolveStatus::optimal)
+	{
+		return milpResult.objective;
+	}
+	if (milpResult.status == StripPacking::MasterSolveStatus::infeasible)
+	{
+		return BigNumber;
+	}
 
-		}
-		model.add(expr == 1);
-		expr.end();
-	}
-	// second constraints set
-	IloNumVar z(env, 0, IloInfinity, "ObjZ");
-	for (const auto q : allPositions)
+	std::vector<int> loads(stripWidth, 0);
+	std::vector<int> order(t_allItems.size(), 0);
+	for (size_t i = 0; i < t_allItems.size(); ++i) order[i] = static_cast<int>(i);
+	std::sort(order.begin(), order.end(), [&](int lhs, int rhs) {
+		if (options[lhs].size() != options[rhs].size()) return options[lhs].size() < options[rhs].size();
+		return t_allItems[lhs]->width > t_allItems[rhs]->width;
+	});
+	std::vector<int> suffixArea(order.size() + 1, 0);
+	for (int i = static_cast<int>(order.size()) - 1; i >= 0; --i)
 	{
-		IloExpr expr(env);
-		for (const auto it : t_allItems)
+		const auto* it = t_allItems[order[static_cast<size_t>(i)]];
+		suffixArea[static_cast<size_t>(i)] = suffixArea[static_cast<size_t>(i + 1)] + it->width * it->height;
+	}
+	int bestObj = std::numeric_limits<int>::max();
+
+	std::function<void(size_t, int, int)> dfs = [&](size_t depth, int currentMax, int usedArea) {
+		if (currentMax >= bestObj) return;
+		const int avgLb = static_cast<int>(std::ceil((usedArea + suffixArea[depth]) / static_cast<double>(stripWidth)));
+		if (std::max(currentMax, avgLb) >= bestObj) return;
+		if (depth == order.size())
 		{
-			// calculate W(j, q)
-			for (const auto& it2 : t_mapPosWidth.find(it->idx)->second)
+			bestObj = currentMax;
+			return;
+		}
+		const int itemIdx = order[depth];
+		const auto* itemPtr = t_allItems[itemIdx];
+		for (int pos : options[itemIdx])
+		{
+			int nextMax = currentMax;
+			for (int col = pos; col < pos + itemPtr->width; ++col)
 			{
-				if (it2 <= q && it2 >= q - it->width + 1)
-				{
-					auto iter = allVars.find(StripPacking::getVarName(it->idx, it2));
-					assert(iter != allVars.end());
-					expr += iter->second*it->height;
-				}
+				loads[col] += itemPtr->height;
+				nextMax = std::max(nextMax, loads[col]);
+			}
+			dfs(depth + 1, nextMax, usedArea + itemPtr->width * itemPtr->height);
+			for (int col = pos; col < pos + itemPtr->width; ++col)
+			{
+				loads[col] -= itemPtr->height;
 			}
 		}
-		model.add(expr <= z);
-		expr.end();
-	}
-	model.add(IloMinimize(env, z));
-	IloCplex cplex(env);
-	cplex.extract(model);
-	cplex.setOut(env.getNullStream());
-	cplex.setWarning(env.getNullStream());
-	//cplex.exportModel("lowerBound5.lp");
-	
-	cplex.setParam(IloCplex::Param::Preprocessing::RepeatPresolve, 3);
-	cplex.setParam(IloCplex::Param::Preprocessing::Reduce, 3);
-	cplex.setParam(IloCplex::Param::MIP::Strategy::Probe, 3);
-	cplex.setParam(IloCplex::Param::Preprocessing::Symmetry, 5);
-	cplex.solve();
-	double result = cplex.getObjValue();
-	env.end();
-	return result;
+	};
+	dfs(0, 0, 0);
+	return (bestObj == std::numeric_limits<int>::max()) ? BigNumber : bestObj;
 }
-
-
-

@@ -1,8 +1,9 @@
 #pragma once
 #include "spp.h"
-#include <ilcplex/ilocplex.h>
 
 #include <stack>
+#include <memory>
+#include <unordered_map>
 #define DUMP_SOL
 class itemPieceWidth;
 namespace StripPacking
@@ -196,10 +197,10 @@ the y-check algorithm---------------------------------------------------end
 Combinatorial Benders---------------------------------------------------start
 */
 std::vector<coordinate>  extractInfo4Ycheck(const std::vector<const item*>& t_allItems, 
-	const IloCplex& t_cplex, const IloArray<IloNumVarArray>& t_variables) const;
+	const std::vector<int>& t_assignment) const;
 
-void addBendersCut(IloCplex& t_cplex, const std::vector<const item*>& t_allItems,
-	const IloArray<IloNumVarArray>& t_variables, const std::vector<IloNumVar>& t_selectedVars) const;
+void addBendersCut(std::vector<std::pair<std::vector<std::pair<int, int>>, int>>& t_cuts,
+	const std::vector<std::pair<int, int>>& t_selectedVars, int t_rhs) const;
 
 const std::vector<std::vector<int>> findSubset(const int t_binHeight, const int t_binWidth,
 	const std::vector<const item*>& t_allItems, const std::vector<coordinate>& t_Cords,
@@ -232,10 +233,12 @@ Return:
 	 const int t_startColumn, const int t_endColumn) const;
 
  std::vector<std::vector<int>> findSubSetSecondStep(const int t_binWidth, const int t_binHeight, const std::vector<std::vector<int>>& t_currentSubSets,
-	 const std::map<int, const item*>& t_allItemsMap, const std::vector<coordinate>& t_Cords) const;
+	 const std::map<int, const item*>& t_allItemsMap, const std::vector<coordinate>& t_Cords,
+	 std::unordered_map<std::string, bool>& t_yCheckCache) const;
 
  std::vector<std::vector<int>> findSubSetThirdStep(const int t_binWidth, const int t_binHeight, const std::vector<std::vector<int>>& t_currentSubSets,
-	 const std::map<int, const item*>& t_allItemsMap, const std::vector<coordinate>& t_Cords) const;
+	 const std::map<int, const item*>& t_allItemsMap, const std::vector<coordinate>& t_Cords,
+	 std::unordered_map<std::string, bool>& t_yCheckCache, std::unordered_map<int, int>& t_successScore) const;
 
  const std::vector<int> getColumnsFromSubset(const std::vector<int>& t_subset, 
 	 const std::map<int, const item*>& t_allItemsMap, 
@@ -247,7 +250,8 @@ Return:
 
 std::vector<int> attemptRemove(const int t_binHeight, const int t_binWidth, const std::vector<int>& t_processingsubset,
 	const std::set<int>& t_removedItems,
-	 const std::vector<coordinate>& t_Cords, const std::map<int, const item*>& t_allItemsMap) const;
+	 const std::vector<coordinate>& t_Cords, const std::map<int, const item*>& t_allItemsMap,
+	 std::unordered_map<std::string, bool>& t_yCheckCache) const;
  /*
 Combinatorial Benders---------------------------------------------------end
 */
@@ -272,4 +276,3 @@ private:
 
 };
 }
-

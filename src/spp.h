@@ -5,6 +5,7 @@
 #include <set>
 #include <algorithm>
 #include <string>
+#include <sstream>
 namespace StripPacking
 {
 
@@ -208,7 +209,6 @@ public:
 
 
 }
-
 
 
 
