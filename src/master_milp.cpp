@@ -1,36 +1,16 @@
 #include "master_milp.h"
 
-#include <cstdlib>
 #include <cmath>
 #include <algorithm>
-#include <filesystem>
-#include <fstream>
-#include <sstream>
-#include <unistd.h>
+#include <limits>
 
-namespace
-{
-std::string getHiGHSBinary()
-{
-	const char* envPath = std::getenv("HIGHS_BIN");
-	if (envPath != nullptr && std::filesystem::exists(envPath))
-	{
-		return std::string(envPath);
-	}
-	const std::string vendored = "./third_party/highs/bin/highs";
-	if (std::filesystem::exists(vendored))
-	{
-		return vendored;
-	}
-	return "highs";
+#include "highs/Highs.h"
+
+namespace {
+bool highsOk(const HighsStatus status) {
+	return status == HighsStatus::kOk || status == HighsStatus::kWarning;
 }
-
-std::string quotePath(const std::string& p)
-{
-	return "\"" + p + "\"";
 }
-
-} // namespace
 
 StripPacking::MasterSolveResult StripPacking::solveMasterWithHiGHS(
 	const std::vector<const item*>& t_items,
@@ -49,191 +29,170 @@ StripPacking::MasterSolveResult StripPacking::solveMasterWithHiGHS(
 		return result;
 	}
 
-	const std::string tag = std::to_string(::getpid()) + "_" + std::to_string(std::rand());
-	const std::string modelPath = "/tmp/master_" + tag + ".lp";
-	const std::string solPath = "/tmp/master_" + tag + ".sol";
-	const std::string logPath = "/tmp/master_" + tag + ".log";
-
-	std::ofstream lp(modelPath);
-	if (!lp.is_open()) return result;
-
-	lp << "Minimize\n";
-	lp << " obj: z\n";
-	lp << "Subject To\n";
-
-	for (size_t i = 0; i < t_items.size(); ++i)
+	Highs highs;
+	if (!highsOk(highs.setOptionValue("output_flag", false)))
 	{
-		lp << " assign_" << i << ": ";
-		bool first = true;
-		for (int pos : t_options[i])
+		return result;
+	}
+	if (t_timeLimitSeconds > 0.0)
+	{
+		if (!highsOk(highs.setOptionValue("time_limit", t_timeLimitSeconds)))
 		{
-			if (!first) lp << " + ";
-			first = false;
-			lp << "x_" << i << "_" << pos;
-		}
-		if (first)
-		{
-			lp << "0 = 1\n";
-		}
-		else
-		{
-			lp << " = 1\n";
+			return result;
 		}
 	}
-
-	for (int q = 0; q < t_stripWidth; ++q)
+	if (!highsOk(highs.changeObjectiveSense(ObjSense::kMinimize)))
 	{
-		lp << " load_" << q << ": ";
-		bool first = true;
-		for (size_t i = 0; i < t_items.size(); ++i)
+		return result;
+	}
+
+	// Add z first: minimize z with 0 <= z.
+	if (!highsOk(highs.addCol(1.0, 0.0, kHighsInf, 0, nullptr, nullptr)))
+	{
+		return result;
+	}
+	const HighsInt zCol = 0;
+
+	std::vector<std::vector<HighsInt>> xColIndex(t_items.size());
+	for (size_t i = 0; i < t_items.size(); ++i)
+	{
+		xColIndex[i].reserve(t_options[i].size());
+		for (size_t k = 0; k < t_options[i].size(); ++k)
 		{
-			for (int pos : t_options[i])
+			if (!highsOk(highs.addCol(0.0, 0.0, 1.0, 0, nullptr, nullptr)))
 			{
-				if (pos <= q && q < pos + t_items[i]->width)
+				return result;
+			}
+			const HighsInt colIndex = static_cast<HighsInt>(highs.getNumCol() - 1);
+			xColIndex[i].push_back(colIndex);
+			if (t_integer)
+			{
+				if (!highsOk(highs.changeColIntegrality(colIndex, HighsVarType::kInteger)))
 				{
-					if (!first) lp << " + ";
-					first = false;
-					lp << t_items[i]->height << " x_" << i << "_" << pos;
+					return result;
 				}
 			}
 		}
-		if (first)
+	}
+
+	// Assignment rows: sum_pos x_i_pos = 1
+	for (size_t i = 0; i < t_items.size(); ++i)
+	{
+		std::vector<HighsInt> indices;
+		std::vector<double> values;
+		indices.reserve(t_options[i].size());
+		values.reserve(t_options[i].size());
+		for (size_t k = 0; k < t_options[i].size(); ++k)
 		{
-			lp << " - z <= 0\n";
+			indices.push_back(xColIndex[i][k]);
+			values.push_back(1.0);
 		}
-		else
+		if (!highsOk(highs.addRow(1.0, 1.0,
+			static_cast<HighsInt>(indices.size()), indices.data(), values.data())))
 		{
-			lp << " - z <= 0\n";
+			return result;
 		}
 	}
 
+	// Load rows: sum_i,pos h_i * x_i_pos - z <= 0, for each q.
+	for (int q = 0; q < t_stripWidth; ++q)
+	{
+		std::vector<HighsInt> indices;
+		std::vector<double> values;
+		indices.push_back(zCol);
+		values.push_back(-1.0);
+		for (size_t i = 0; i < t_items.size(); ++i)
+		{
+			for (size_t k = 0; k < t_options[i].size(); ++k)
+			{
+				const int pos = t_options[i][k];
+				if (pos <= q && q < pos + t_items[i]->width)
+				{
+					indices.push_back(xColIndex[i][k]);
+					values.push_back(static_cast<double>(t_items[i]->height));
+				}
+			}
+		}
+		if (!highsOk(highs.addRow(-kHighsInf, 0.0,
+			static_cast<HighsInt>(indices.size()), indices.data(), values.data())))
+		{
+			return result;
+		}
+	}
+
+	// No-good cuts: sum selected x <= rhs
 	for (size_t c = 0; c < t_noGoodCuts.size(); ++c)
 	{
 		const auto& cut = t_noGoodCuts[c].first;
 		const int rhs = t_noGoodCuts[c].second;
 		if (cut.empty()) continue;
-		lp << " cut_" << c << ": ";
+		std::vector<HighsInt> indices;
+		std::vector<double> values;
+		indices.reserve(cut.size());
+		values.reserve(cut.size());
 		for (size_t k = 0; k < cut.size(); ++k)
 		{
-			if (k) lp << " + ";
-			lp << "x_" << cut[k].first << "_" << cut[k].second;
+			const int itemIdx = cut[k].first;
+			const int pos = cut[k].second;
+			if (itemIdx < 0 || itemIdx >= static_cast<int>(t_options.size())) continue;
+			const auto posIt = std::find(t_options[itemIdx].begin(), t_options[itemIdx].end(), pos);
+			if (posIt == t_options[itemIdx].end()) continue;
+			const size_t optionIndex = static_cast<size_t>(std::distance(t_options[itemIdx].begin(), posIt));
+			indices.push_back(xColIndex[itemIdx][optionIndex]);
+			values.push_back(1.0);
 		}
-		lp << " <= " << rhs << "\n";
-	}
-
-	lp << "Bounds\n";
-	lp << " 0 <= z\n";
-	for (size_t i = 0; i < t_items.size(); ++i)
-	{
-		for (int pos : t_options[i])
+		if (indices.empty()) continue;
+		if (!highsOk(highs.addRow(-kHighsInf, static_cast<double>(rhs),
+			static_cast<HighsInt>(indices.size()), indices.data(), values.data())))
 		{
-			lp << " 0 <= x_" << i << "_" << pos << " <= 1\n";
+			return result;
 		}
 	}
 
-	if (t_integer)
+	if (!highsOk(highs.run()))
 	{
-		lp << "Binary\n";
-		for (size_t i = 0; i < t_items.size(); ++i)
-		{
-			for (int pos : t_options[i])
-			{
-				lp << " x_" << i << "_" << pos << "\n";
-			}
-		}
-	}
-
-	lp << "End\n";
-	lp.close();
-
-	const std::string highsBin = getHiGHSBinary();
-	std::ostringstream cmd;
-	cmd << quotePath(highsBin)
-		<< " --model_file " << quotePath(modelPath)
-		<< " --solution_file " << quotePath(solPath)
-		<< " --time_limit " << t_timeLimitSeconds
-		<< " > " << quotePath(logPath) << " 2>&1";
-	const int rc = std::system(cmd.str().c_str());
-	(void)rc;
-
-	std::ifstream sol(solPath);
-	if (!sol.is_open())
-	{
-		result.status = MasterSolveStatus::error;
-		std::filesystem::remove(modelPath);
-		std::filesystem::remove(logPath);
 		return result;
 	}
 
-	std::string line;
-	bool inColumns = false;
-	std::string modelStatus;
-	while (std::getline(sol, line))
+	const auto modelStatus = highs.getModelStatus();
+	if (modelStatus == HighsModelStatus::kOptimal)
 	{
-		if (line == "Model status")
-		{
-			if (std::getline(sol, modelStatus))
-			{
-				if (modelStatus.find("Optimal") != std::string::npos)
-				{
-					result.status = MasterSolveStatus::optimal;
-				}
-				else if (modelStatus.find("Infeasible") != std::string::npos)
-				{
-					result.status = MasterSolveStatus::infeasible;
-				}
-				else if (modelStatus.find("Time") != std::string::npos || modelStatus.find("limit") != std::string::npos)
-				{
-					result.status = MasterSolveStatus::time_limit;
-				}
-			}
-			continue;
-		}
-		if (line.rfind("Objective ", 0) == 0)
-		{
-			result.objective = std::stod(line.substr(std::string("Objective ").size()));
-			continue;
-		}
-		if (line.rfind("# Columns", 0) == 0)
-		{
-			inColumns = true;
-			continue;
-		}
-		if (line.rfind("# Rows", 0) == 0)
-		{
-			inColumns = false;
-			continue;
-		}
-		if (inColumns)
-		{
-			std::istringstream iss(line);
-			std::string varName;
-			double value = 0.0;
-			if (!(iss >> varName >> value)) continue;
-			if (varName == "z") continue;
-			if (value < 0.5) continue;
-			// x_i_pos
-			if (varName.rfind("x_", 0) == 0)
-			{
-				size_t p1 = varName.find('_', 2);
-				if (p1 == std::string::npos) continue;
-				const int itemIdx = std::stoi(varName.substr(2, p1 - 2));
-				const int pos = std::stoi(varName.substr(p1 + 1));
-				if (0 <= itemIdx && itemIdx < static_cast<int>(result.assignment.size()))
-				{
-					result.assignment[itemIdx] = pos;
-				}
-			}
-		}
+		result.status = MasterSolveStatus::optimal;
 	}
-	sol.close();
-
-	std::filesystem::remove(modelPath);
-	std::filesystem::remove(solPath);
-	std::filesystem::remove(logPath);
-	if (result.status == MasterSolveStatus::error && modelStatus.empty())
+	else if (modelStatus == HighsModelStatus::kInfeasible)
+	{
+		result.status = MasterSolveStatus::infeasible;
+		return result;
+	}
+	else if (modelStatus == HighsModelStatus::kTimeLimit ||
+		modelStatus == HighsModelStatus::kIterationLimit)
 	{
 		result.status = MasterSolveStatus::time_limit;
+		return result;
+	}
+	else
+	{
+		result.status = MasterSolveStatus::error;
+		return result;
+	}
+
+	result.objective = highs.getObjectiveValue();
+	const auto& solution = highs.getSolution();
+	if (solution.col_value.size() != static_cast<size_t>(highs.getNumCol()))
+	{
+		result.status = MasterSolveStatus::error;
+		return result;
+	}
+	for (size_t i = 0; i < t_items.size(); ++i)
+	{
+		for (size_t k = 0; k < t_options[i].size(); ++k)
+		{
+			if (solution.col_value[xColIndex[i][k]] >= 0.5)
+			{
+				result.assignment[i] = t_options[i][k];
+				break;
+			}
+		}
 	}
 	return result;
 }

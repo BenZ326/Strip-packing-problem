@@ -8,6 +8,7 @@
 #include <stack>
 #include <functional>
 #include <limits>
+#include <array>
 #include <cstdio>
 #include <memory>
 #include <cmath>
@@ -19,8 +20,9 @@
 #include <random>
 
 #include <chrono>
-double StripPacking::BLEU::tolerance = 0.0001;
-int StripPacking::BLEU::bigNumber = 999999;
+#include "highs/Highs.h"
+double StripPacking::BLEU::tolerance = 1e-4;
+int StripPacking::BLEU::bigNumber = std::numeric_limits<int>::max();
 int StripPacking::BLEU::BBMaxExplNodesPerPack = 10000000;
 int StripPacking::BLEU::BBMaxExplNodesNonPerPack = 5000;
 int StripPacking::BLEU::interestingStatics = 0;
@@ -891,14 +893,6 @@ const StripPacking::solutionStatus StripPacking::BLEU::combinatorialBenders(cons
 	}
 	std::vector<std::pair<std::vector<std::pair<int, int>>, int>> bendersCuts;
 	std::vector<int> bestAssignment(t_Items.size(), -1);
-	auto getHiGHSBinary = []() -> std::string {
-		const char* envPath = std::getenv("HIGHS_BIN");
-		if (envPath != nullptr && std::filesystem::exists(envPath)) return std::string(envPath);
-		const std::string vendored = "./third_party/highs/bin/highs";
-		if (std::filesystem::exists(vendored)) return vendored;
-		return "highs";
-	};
-	auto quotePath = [](const std::string& p) { return "\"" + p + "\""; };
 	auto buildLiftedCut = [&](const std::vector<int>& t_subsetItems, const std::vector<coordinate>& t_coords)
 		-> std::pair<std::vector<std::pair<int, int>>, int> {
 		std::pair<std::vector<std::pair<int, int>>, int> emptyResult;
@@ -911,12 +905,6 @@ const StripPacking::solutionStatus StripPacking::BLEU::combinatorialBenders(cons
 			if (ptr == allItemsMap.end()) return emptyResult;
 			subset.push_back(ptr->second);
 		}
-		const std::string tag = "lift_" + std::to_string(::getpid()) + "_" + std::to_string(std::rand());
-		const std::string modelPath = "/tmp/" + tag + ".lp";
-		const std::string solPath = "/tmp/" + tag + ".sol";
-		const std::string logPath = "/tmp/" + tag + ".log";
-		std::ofstream lp(modelPath);
-		if (!lp.is_open()) return emptyResult;
 
 		// Compute overlap graph K^s(j).
 		std::vector<std::vector<int>> overlap(subset.size());
@@ -936,92 +924,63 @@ const StripPacking::solutionStatus StripPacking::BLEU::combinatorialBenders(cons
 			}
 		}
 
-		lp << "Maximize\n obj:";
+		Highs highs;
+		if (highs.setOptionValue("output_flag", false) == HighsStatus::kError)
+			return emptyResult;
+		if (highs.setOptionValue("solver", std::string("simplex")) == HighsStatus::kError)
+			return emptyResult;
+		if (highs.changeObjectiveSense(ObjSense::kMaximize) == HighsStatus::kError)
+			return emptyResult;
+
+		std::vector<HighsInt> lCols(subset.size(), -1);
+		std::vector<HighsInt> rCols(subset.size(), -1);
 		for (size_t a = 0; a < subset.size(); ++a)
 		{
-			lp << " + r_" << subset[a]->idxHelper << " - l_" << subset[a]->idxHelper;
+			const auto* it = subset[a];
+			const int ps = t_coords[it->idxHelper].x;
+			const int rmax = t_binWidth - it->width;
+			if (highs.addCol(-1.0, 0.0, static_cast<double>(ps), 0, nullptr, nullptr) == HighsStatus::kError)
+				return emptyResult;
+			lCols[a] = highs.getNumCol() - 1;
+			if (highs.addCol(1.0, static_cast<double>(ps), static_cast<double>(rmax), 0, nullptr, nullptr) == HighsStatus::kError)
+				return emptyResult;
+			rCols[a] = highs.getNumCol() - 1;
 		}
-		lp << "\nSubject To\n";
+
 		for (size_t a = 0; a < subset.size(); ++a)
 		{
 			const auto* ja = subset[a];
 			for (int b : overlap[a])
 			{
-				const auto* ib = subset[static_cast<size_t>(b)];
+				std::array<HighsInt, 2> indices = { lCols[a], rCols[static_cast<size_t>(b)] };
+				std::array<double, 2> values = { 1.0, -1.0 };
 				// l_j + w_j >= r_i + 1  <=>  l_j - r_i >= 1 - w_j
-				lp << " ov_" << ja->idxHelper << "_" << ib->idxHelper << ": "
-					<< "l_" << ja->idxHelper << " - r_" << ib->idxHelper
-					<< " >= " << (1 - ja->width) << "\n";
+				if (highs.addRow(static_cast<double>(1 - ja->width), kHighsInf,
+					static_cast<HighsInt>(indices.size()), indices.data(), values.data()) == HighsStatus::kError)
+					return emptyResult;
 			}
 		}
-		lp << "Bounds\n";
-		for (const auto* it : subset)
+		if (highs.run() == HighsStatus::kError)
 		{
-			int ps = t_coords[it->idxHelper].x;
-			int rmax = t_binWidth - it->width;
-			lp << " 0 <= l_" << it->idxHelper << " <= " << ps << "\n";
-			lp << " " << ps << " <= r_" << it->idxHelper << " <= " << rmax << "\n";
-		}
-		lp << "End\n";
-		lp.close();
-
-		std::ostringstream cmd;
-		cmd << quotePath(getHiGHSBinary())
-			<< " --model_file " << quotePath(modelPath)
-			<< " --solution_file " << quotePath(solPath)
-			<< " --solver simplex"
-			<< " > " << quotePath(logPath) << " 2>&1";
-		std::system(cmd.str().c_str());
-
-		std::ifstream sol(solPath);
-		if (!sol.is_open())
-		{
-			std::filesystem::remove(modelPath);
-			std::filesystem::remove(logPath);
 			return emptyResult;
 		}
-		std::map<int, double> lvals, rvals;
-		std::string line;
-		bool inPrimalColumns = false;
-		while (std::getline(sol, line))
+		const auto modelStatus = highs.getModelStatus();
+		if (modelStatus != HighsModelStatus::kOptimal)
 		{
-			if (line == "# Primal solution values") continue;
-			if (line.rfind("# Columns ", 0) == 0)
-			{
-				inPrimalColumns = true;
-				continue;
-			}
-			if (line.rfind("# Rows ", 0) == 0)
-			{
-				inPrimalColumns = false;
-				continue;
-			}
-			if (!inPrimalColumns) continue;
-			std::istringstream iss(line);
-			std::string var;
-			double val = 0.0;
-			if (!(iss >> var >> val)) continue;
-			if (var.rfind("l_", 0) == 0)
-			{
-				lvals[std::stoi(var.substr(2))] = val;
-			}
-			else if (var.rfind("r_", 0) == 0)
-			{
-				rvals[std::stoi(var.substr(2))] = val;
-			}
+			return emptyResult;
 		}
-		sol.close();
-		std::filesystem::remove(modelPath);
-		std::filesystem::remove(solPath);
-		std::filesystem::remove(logPath);
+		const auto& solution = highs.getSolution();
+		if (solution.col_value.size() != static_cast<size_t>(highs.getNumCol()))
+			return emptyResult;
 
 		std::vector<std::pair<int, int>> liftedVars;
-		for (const auto* it : subset)
+		for (size_t a = 0; a < subset.size(); ++a)
 		{
-			if (lvals.find(it->idxHelper) == lvals.end() || rvals.find(it->idxHelper) == rvals.end())
-				return emptyResult;
-			int lbar = static_cast<int>(std::ceil(lvals[it->idxHelper] - BLEU::tolerance));
-			int rbar = static_cast<int>(std::floor(rvals[it->idxHelper] + BLEU::tolerance));
+			const auto* it = subset[a];
+			const double lval = solution.col_value[lCols[a]];
+			const double rval = solution.col_value[rCols[a]];
+			int lbar = static_cast<int>(std::ceil(lval - BLEU::tolerance));
+			int rbar = static_cast<int>(std::floor(rval + BLEU::tolerance));
 			const auto& feasPos = mapPosWidth.find(it->idx)->second;
 			for (int p = lbar; p <= rbar; ++p)
 			{
@@ -1119,7 +1078,7 @@ void StripPacking::BLEU::addBendersCut(std::vector<std::pair<std::vector<std::pa
 
 /*
 This is the center of the combinatorial cuts, it find a subset of variables to strenthen the benders cut
-The description of the method can be found at section 4.
+The description of the method can be found at section 4 of the paper.
 */
 const std::vector<std::vector<int>> StripPacking::BLEU::findSubset(const int t_binHeight, const int t_binWidth,const std::vector<const item*>& t_allItems,
 	const std::vector<coordinate>& t_Cords, const std::map<int, const item*>& t_allItemsMap) const
@@ -1775,127 +1734,49 @@ const int StripPacking::BLEU::LowerBound4()const
 	allWidths.reserve(_processedItems.size());
 	for (const auto* it : _processedItems) allWidths.push_back(it->width);
 
-	auto getHiGHSBinary = []() -> std::string {
-		const char* envPath = std::getenv("HIGHS_BIN");
-		if (envPath != nullptr && std::filesystem::exists(envPath)) return std::string(envPath);
-		const std::string vendored = "./third_party/highs/bin/highs";
-		if (std::filesystem::exists(vendored)) return vendored;
-		return "highs";
-	};
-	auto quote = [](const std::string& p) { return "\"" + p + "\""; };
-
 	while (true)
 	{
-		const std::string tag = "lb4_" + std::to_string(::getpid()) + "_" + std::to_string(std::rand());
-		const std::string modelPath = "/tmp/" + tag + ".lp";
-		const std::string solPath = "/tmp/" + tag + ".sol";
-		const std::string logPath = "/tmp/" + tag + ".log";
-
-		std::ofstream lp(modelPath);
-		if (!lp.is_open()) return this->LowerBound1();
-		lp << "Minimize\n";
-		lp << " obj:";
-		for (size_t p = 0; p < patterns.size(); ++p) lp << " + x_" << p;
-		lp << "\nSubject To\n";
+		Highs highs;
+		if (highs.setOptionValue("output_flag", false) == HighsStatus::kError) return this->LowerBound1();
+		if (highs.setOptionValue("solver", std::string("simplex")) == HighsStatus::kError) return this->LowerBound1();
+		if (highs.changeObjectiveSense(ObjSense::kMinimize) == HighsStatus::kError) return this->LowerBound1();
+		for (size_t p = 0; p < patterns.size(); ++p)
+		{
+			if (highs.addCol(1.0, 0.0, kHighsInf, 0, nullptr, nullptr) == HighsStatus::kError)
+				return this->LowerBound1();
+		}
 		for (size_t i = 0; i < _processedItems.size(); ++i)
 		{
-			lp << " c_" << i << ":";
-			bool any = false;
+			std::vector<HighsInt> indices;
+			std::vector<double> values;
 			for (size_t p = 0; p < patterns.size(); ++p)
 			{
 				const auto& pat = patterns[p];
 				if (std::find(pat.begin(), pat.end(), static_cast<int>(i)) != pat.end())
 				{
-					lp << " + x_" << p;
-					any = true;
+					indices.push_back(static_cast<HighsInt>(p));
+					values.push_back(1.0);
 				}
 			}
-			if (!any) lp << " 0";
-			lp << " >= " << _processedItems[i]->height << "\n";
+			if (highs.addRow(static_cast<double>(_processedItems[i]->height), kHighsInf,
+				static_cast<HighsInt>(indices.size()), indices.data(), values.data()) == HighsStatus::kError)
+				return this->LowerBound1();
 		}
-		lp << "Bounds\n";
-		for (size_t p = 0; p < patterns.size(); ++p) lp << " 0 <= x_" << p << "\n";
-		lp << "End\n";
-		lp.close();
-
-		std::ostringstream cmd;
-		cmd << quote(getHiGHSBinary())
-			<< " --model_file " << quote(modelPath)
-			<< " --solution_file " << quote(solPath)
-			<< " --solver simplex"
-			<< " > " << quote(logPath) << " 2>&1";
-		const int rc = std::system(cmd.str().c_str());
-		(void)rc;
-
-		std::ifstream sol(solPath);
-		if (!sol.is_open())
+		if (highs.run() == HighsStatus::kError)
 		{
-			std::filesystem::remove(modelPath);
-			std::filesystem::remove(logPath);
 			return this->LowerBound1();
 		}
+		const auto modelStatus = highs.getModelStatus();
+		if (modelStatus != HighsModelStatus::kOptimal) return this->LowerBound1();
 
-		double objValue = -1.0;
+		double objValue = highs.getObjectiveValue();
 		std::vector<double> dualValues(_processedItems.size(), 0.0);
-		std::string line;
-		enum class ParseSection { none, primal, dual, basis };
-		ParseSection section = ParseSection::none;
-		bool parseRows = false;
-		while (std::getline(sol, line))
+		const auto& solution = highs.getSolution();
+		if (solution.row_dual.size() != _processedItems.size()) return this->LowerBound1();
+		for (size_t i = 0; i < dualValues.size(); ++i)
 		{
-			if (line.rfind("Objective ", 0) == 0)
-			{
-				objValue = std::stod(line.substr(std::string("Objective ").size()));
-				continue;
-			}
-			if (line == "# Primal solution values")
-			{
-				section = ParseSection::primal;
-				parseRows = false;
-				continue;
-			}
-			if (line == "# Dual solution values")
-			{
-				section = ParseSection::dual;
-				parseRows = false;
-				continue;
-			}
-			if (line == "# Basis")
-			{
-				section = ParseSection::basis;
-				parseRows = false;
-				continue;
-			}
-			if (line.rfind("# Rows ", 0) == 0)
-			{
-				parseRows = true;
-				continue;
-			}
-			if (line.rfind("# Columns ", 0) == 0)
-			{
-				parseRows = false;
-				continue;
-			}
-			if (section == ParseSection::dual && parseRows && line.rfind("c_", 0) == 0)
-			{
-				std::istringstream iss(line);
-				std::string cname;
-				double val = 0.0;
-				if (!(iss >> cname >> val)) continue;
-				if (cname.rfind("c_", 0) == 0)
-				{
-					const int idx = std::stoi(cname.substr(2));
-					if (0 <= idx && idx < static_cast<int>(dualValues.size()))
-					{
-						dualValues[idx] = val;
-					}
-				}
-			}
+			dualValues[i] = solution.row_dual[i];
 		}
-		sol.close();
-		std::filesystem::remove(modelPath);
-		std::filesystem::remove(solPath);
-		std::filesystem::remove(logPath);
 		if (objValue < 0.0) return this->LowerBound1();
 
 		std::vector<int> selectedItems;
