@@ -13,76 +13,90 @@ int main(int argc, char** argv)
 {
 	auto printUsage = []() {
 		std::cout
-			<< "Usage: spp [folder] [single] [single_instance_path]\n"
-			<< "  folder: instance folder (default: ./test/2sp)\n"
-			<< "  single: 0/1, solve one instance only when 1 (default: 0)\n"
-			<< "  single_instance_path: path to a single instance, required when single=1\n"
+			<< "Usage: spp [--time_buget <seconds>] [--problem_path <path>]\n"
+			<< "  --time_buget: solver time limit in seconds (default: 60)\n"
+			<< "  --problem_path: path to a single .TXT instance file (default: ./test/2sp/HT01.TXT)\n"
 			<< "Examples:\n"
 			<< "  spp\n"
-			<< "  spp ./test/2sp\n"
-			<< "  spp ./test/2sp 1 ./test/2sp/HT01.TXT\n";
+			<< "  spp --time_buget 120 --problem_path ./test/2sp/HT01.TXT\n"
+			<< "  spp --problem_path ./test/2sp/HT01.TXT\n";
 	};
 
-	if (argc >= 2)
+	std::string problemPath = "";
+	int solverTimeLimitSeconds = 60;
+
+	for (int i = 1; i < argc; ++i)
 	{
-		const std::string arg1 = argv[1];
-		if (arg1 == "--help" || arg1 == "-h")
+		const std::string arg = argv[i];
+		if (arg == "--time_buget")
 		{
-			printUsage();
-			return 0;
+			if (i + 1 >= argc)
+			{
+				std::cerr << "Missing value for --time_buget\n";
+				return 1;
+			}
+			solverTimeLimitSeconds = std::atoi(argv[++i]);
+			if (solverTimeLimitSeconds <= 0)
+			{
+				std::cerr << "Invalid --time_buget value, it must be a positive integer\n";
+				return 1;
+			}
+			continue;
 		}
-	}
+		if (arg == "--problem_path")
+		{
+			if (i + 1 >= argc)
+			{
+				std::cerr << "Missing value for --problem_path\n";
+				return 1;
+			}
+			problemPath = argv[++i];
+			continue;
+		}
 
-	std::string instancesFolder = "./test/2sp";
-	bool runSingle = false;
-	std::string singleInstancePath;
-
-	if (argc >= 2) instancesFolder = argv[1];
-	if (argc >= 3) runSingle = (std::atoi(argv[2]) == 1);
-	if (argc >= 4) singleInstancePath = argv[3];
-	if (runSingle && singleInstancePath.empty())
-	{
-		std::cerr << "single=1 requires arg3: path to single instance\n";
+		std::cerr << "Unknown argument: " << arg << "\n";
+		printUsage();
 		return 1;
 	}
-
-	const int solverTimeLimitSeconds = 60;
 
 	// a lambda function to solve one instance.
-	auto solveOne = [&](const std::string& filePath) {
+	auto solveOne = [&](const std::string& filePath) -> int {
 		std::vector<const StripPacking::item*> allItems;
-		StripPacking::Heuristic hrs;
 		int W = readData(filePath, allItems);
-		std::vector<const StripPacking::item*> copyItems(allItems.begin(), allItems.end());
-		int totalArea = 0;
 		StripPacking::BLEU::algStatus = StripPacking::algorithmStatus::exact;
 		StripPacking::BLEU alg(allItems, W, solverTimeLimitSeconds);
-		auto height = alg.takeOff();
+		const int height = alg.takeOff();
 		for (auto it = allItems.begin(); it != allItems.end(); ++it)
 			delete (*it);
+		return height;
 	};
-	if (runSingle)
+	if (!std::filesystem::exists(problemPath))
 	{
-		if (!std::filesystem::exists(singleInstancePath))
-		{
-			std::cerr << "Single instance not found: " << singleInstancePath << "\n";
-			return 1;
-		}
-		solveOne(singleInstancePath);
-		return 0;
-	}
-
-	if (!std::filesystem::exists(instancesFolder))
-	{
-		std::cerr << "Input folder not found: " << instancesFolder << "\n";
+		std::cerr << "Input file not found: " << problemPath << "\n";
 		return 1;
 	}
 
-	for (const auto& entry : std::filesystem::directory_iterator(instancesFolder))
+	if (!std::filesystem::is_regular_file(problemPath))
 	{
-		if (!entry.is_regular_file() || entry.path().extension() != ".TXT") continue;
-		std::string filePath = entry.path().string();
-		solveOne(filePath);
+		std::cerr << "Input path must be a single file: " << problemPath << "\n";
+		return 1;
+	}
+
+	if (std::filesystem::path(problemPath).extension() != ".TXT")
+	{
+		std::cerr << "Input file must have .TXT extension: " << problemPath << "\n";
+		return 1;
+	}
+
+	const int height = solveOne(problemPath);
+	if (height >= 0)
+	{
+		std::cout << "state: completed\n";
+		std::cout << "height: " << height << "\n";
+	}
+	else
+	{
+		std::cout << "state: timeout\n";
 	}
 	return 0;
 }
