@@ -3,18 +3,37 @@
 #include <string>
 #include "spp.h"
 #include <iostream>
-#include <map>
 #include "BLEU.h"
-#include "util.h"
-#include "heuristic.h"
-#include <cstdlib>
+#include <exception>
+#include <stdexcept>
+
+namespace {
+int parseNonNegativeIntArg(const std::string& name, const char* raw)
+{
+	try
+	{
+		std::string text(raw);
+		size_t consumed = 0;
+		const int value = std::stoi(text, &consumed);
+		if (consumed != text.size() || value < 0)
+		{
+			throw std::invalid_argument("invalid");
+		}
+		return value;
+	}
+	catch (const std::exception&)
+	{
+		throw std::runtime_error("Invalid " + name + " value, it must be a non-negative integer");
+	}
+}
+}
 
 int main(int argc, char** argv)
 {
 	auto printUsage = []() {
 		std::cout
 			<< "Usage: spp [--time_buget <seconds>] [--problem_path <path>]\n"
-			<< "  --time_buget: solver time limit in seconds (default: 60)\n"
+			<< "  --time_buget / --time_budget: solver time limit in seconds (default: 60)\n"
 			<< "  --problem_path: path to a single .TXT instance file (default: ./test/2sp/HT01.TXT)\n"
 			<< "Examples:\n"
 			<< "  spp\n"
@@ -22,23 +41,26 @@ int main(int argc, char** argv)
 			<< "  spp --problem_path ./test/2sp/HT01.TXT\n";
 	};
 
-	std::string problemPath = "";
+	std::string problemPath = "./test/2sp/HT01.TXT";
 	int solverTimeLimitSeconds = 60;
 
 	for (int i = 1; i < argc; ++i)
 	{
 		const std::string arg = argv[i];
-		if (arg == "--time_buget")
+		if (arg == "--time_buget" || arg == "--time_budget")
 		{
 			if (i + 1 >= argc)
 			{
-				std::cerr << "Missing value for --time_buget\n";
+				std::cerr << "Missing value for " << arg << "\n";
 				return 1;
 			}
-			solverTimeLimitSeconds = std::atoi(argv[++i]);
-			if (solverTimeLimitSeconds <= 0)
+			try
 			{
-				std::cerr << "Invalid --time_buget value, it must be a positive integer\n";
+				solverTimeLimitSeconds = parseNonNegativeIntArg(arg, argv[++i]);
+			}
+			catch (const std::exception& ex)
+			{
+				std::cerr << ex.what() << "\n";
 				return 1;
 			}
 			continue;
@@ -61,14 +83,19 @@ int main(int argc, char** argv)
 
 	// a lambda function to solve one instance.
 	auto solveOne = [&](const std::string& filePath) -> int {
+		struct ItemGuard {
+			std::vector<const StripPacking::item*>& items;
+			~ItemGuard() {
+				for (auto* item : items) delete item;
+			}
+		};
+
 		std::vector<const StripPacking::item*> allItems;
+		ItemGuard guard{ allItems };
 		int W = readData(filePath, allItems);
 		StripPacking::BLEU::algStatus = StripPacking::algorithmStatus::exact;
 		StripPacking::BLEU alg(allItems, W, solverTimeLimitSeconds);
-		const int height = alg.takeOff();
-		for (auto it = allItems.begin(); it != allItems.end(); ++it)
-			delete (*it);
-		return height;
+		return alg.takeOff();
 	};
 	if (!std::filesystem::exists(problemPath))
 	{
@@ -88,7 +115,23 @@ int main(int argc, char** argv)
 		return 1;
 	}
 
-	const int height = solveOne(problemPath);
+	if (solverTimeLimitSeconds == 0)
+	{
+		std::cout << "state: timeout\n";
+		return 0;
+	}
+
+	int height = -1;
+	try
+	{
+		height = solveOne(problemPath);
+	}
+	catch (const std::exception& ex)
+	{
+		std::cerr << ex.what() << "\n";
+		return 1;
+	}
+
 	if (height >= 0)
 	{
 		std::cout << "state: completed\n";
