@@ -42,6 +42,9 @@ public:
 	void bounds();
 	const solutionStatus evaluate();
 	int takeOff();			// start to solve
+	void setSearchStrategy(bool useBranchAndBound, bool useBenders);
+	const std::map<int, coordinate>& getFinalSolution() const;
+	std::map<int, coordinate> getPlacedCoordinates() const;
 	const StripPacking::solutionStatus solvePCC();			// solve the parallel machine scheduling with contiguity constraints
 	void dumpSolution(const std::string file_name) const;
 	void dumpSolution(const char* file_name, const std::vector<const item*>& t_Items,
@@ -271,8 +274,12 @@ private:
 	int _bestLowerBound;
 	int _trialHeight;			// the current height being tried
 	mutable std::map<int, coordinate> _finalSolution;		// key is item original index
+	std::map<int, coordinate> _fixedItemCoordinates;		// fixed items identified in preprocessingFixItems
+	std::map<int, coordinate> _heightFixedItemCoordinates;	// items removed in preprocessItemHeight for the current trial
 	const bool _evaluatedMode;			// if it is true, then the algorithm starts from a given height, the mission is to determine if the height is feasible
 	const int _timeLimit;
+	bool _useBranchAndBound = true;
+	bool _useBenders = true;
 
 };
 }

@@ -18,6 +18,7 @@
 #include <unistd.h>
 #include <unordered_map>
 #include <random>
+#include <stdexcept>
 
 #include <chrono>
 #include "highs/Highs.h"
@@ -51,6 +52,35 @@ StripPacking::BLEU::BLEU(const std::vector<const item*>& t_items, const int t_W,
 	this->reassignItemsIdx();
 	this->preprocessing();
 	this->bounds();
+}
+
+void StripPacking::BLEU::setSearchStrategy(bool useBranchAndBound, bool useBenders)
+{
+	_useBranchAndBound = useBranchAndBound;
+	_useBenders = useBenders;
+}
+
+const std::map<int, StripPacking::coordinate>& StripPacking::BLEU::getFinalSolution() const
+{
+	return _finalSolution;
+}
+
+std::map<int, StripPacking::coordinate> StripPacking::BLEU::getPlacedCoordinates() const
+{
+	std::map<int, StripPacking::coordinate> result = _fixedItemCoordinates;
+	for (const auto& kv : _heightFixedItemCoordinates)
+	{
+		result.insert_or_assign(kv.first, StripPacking::coordinate(kv.second.x, kv.second.y + _processedH));
+	}
+	for (const auto* it : _allItems)
+	{
+		if (_fixedItemCoordinates.find(it->origIdx) != _fixedItemCoordinates.end()) continue;
+		if (_heightFixedItemCoordinates.find(it->origIdx) != _heightFixedItemCoordinates.end()) continue;
+		const auto solIt = _finalSolution.find(it->origIdx);
+		if (solIt != _finalSolution.end())
+			result.insert_or_assign(it->origIdx, StripPacking::coordinate(solIt->second.x, solIt->second.y + _processedH));
+	}
+	return result;
 }
 
 /*
@@ -108,6 +138,13 @@ else return the next possible height, implying the the height is infeasible for 
 */
 int StripPacking::BLEU::takeOff()
 {
+	if (!_useBranchAndBound && !_useBenders)
+	{
+		throw std::runtime_error("At least one search strategy must be enabled");
+	}
+
+	_finalSolution.clear();
+	_heightFixedItemCoordinates.clear();
 	int increment = 0;
 	auto globalStart = std::chrono::high_resolution_clock::now();
 	while (true)
@@ -137,26 +174,44 @@ int StripPacking::BLEU::takeOff()
 		std::vector<const item*> Items;
 		for (const auto& it : tmpItems) Items.push_back(std::move(it));
 		//// end preprocess
-		auto bbStatus = this->branchAndBound(Items, binWidth, binHeight);
-		if (bbStatus == solutionStatus::feasible)
+		solutionStatus bbStatus = solutionStatus::infeasible;
+		if (_useBranchAndBound)
 		{
-			this->releaseTmpItems(Items);
-			return _bestLowerBound + increment;
+			bbStatus = this->branchAndBound(Items, binWidth, binHeight);
+			if (bbStatus == solutionStatus::feasible)
+			{
+				this->releaseTmpItems(Items);
+				return _bestLowerBound + increment;
+			}
 		}
-		// Fall back to combinatorial Benders as in the paper workflow when BB cannot close the node quickly.
-		auto bendersStatus = this->combinatorialBenders(Items, binWidth, binHeight, increment);
-		BLEU::algStatus = (BLEU::nodeLimitFlag && bendersStatus == solutionStatus::infeasible) ? algorithmStatus::approximate : BLEU::algStatus;
-		if (bendersStatus == solutionStatus::feasible)
+
+		if (_useBenders)
 		{
+			// Fall back to combinatorial Benders as in the paper workflow when BB cannot close the node quickly.
+			const auto bendersStatus = this->combinatorialBenders(Items, binWidth, binHeight, increment);
+			BLEU::algStatus = (BLEU::nodeLimitFlag && bendersStatus == solutionStatus::infeasible) ? algorithmStatus::approximate : BLEU::algStatus;
+			if (bendersStatus == solutionStatus::feasible)
+			{
+				this->releaseTmpItems(Items);
+				return _bestLowerBound + increment;
+			}
+			if (bendersStatus == solutionStatus::pending || BLEU::algStatus == algorithmStatus::approximate)
+			{
+				this->releaseTmpItems(Items);
+				return -1;
+			}
+			// infeasible for this height -> combinatorialBenders already updated increment.
 			this->releaseTmpItems(Items);
-			return _bestLowerBound + increment;
+			continue;
 		}
-		if (bendersStatus == solutionStatus::pending || BLEU::algStatus == algorithmStatus::approximate)
+
+		if (bbStatus == solutionStatus::pending || BLEU::algStatus == algorithmStatus::approximate)
 		{
 			this->releaseTmpItems(Items);
 			return -1;
 		}
-		// infeasible for this height -> combinatorialBenders already updated increment.
+		// BB-only mode with infeasible height: try next height.
+		++increment;
 		this->releaseTmpItems(Items);
 	}
 }
@@ -205,6 +260,7 @@ bool StripPacking::BLEU::yCheckAlgorithm(const int t_processedW, const int t_Tri
 	const std::vector<const item*> t_processedItems) const
 
 {
+	_finalSolution.clear();
 	std::vector<coordinate> Cords4yCheck = itemPositions;
 	int binWidth = t_processedW;
 	auto Items = this->preprocess4yCheck(binWidth, t_processedItems, Cords4yCheck, t_TrialHeight);
@@ -215,6 +271,12 @@ bool StripPacking::BLEU::yCheckAlgorithm(const int t_processedW, const int t_Tri
 	}
 	bool result = (this->yCheckEnumerationTree(Items, Cords4yCheck, t_TrialHeight, binWidth) == solutionStatus::feasible);
 	this->releaseTmpItems(Items);
+	if (result && _finalSolution.size() < t_processedItems.size())
+	{
+		_finalSolution.clear();
+		std::vector<coordinate> fullCords = itemPositions;
+		result = (this->yCheckEnumerationTree(t_processedItems, fullCords, t_TrialHeight, t_processedW) == solutionStatus::feasible);
+	}
 	return result;
 }
 
@@ -251,7 +313,7 @@ StripPacking::solutionStatus StripPacking::BLEU::yCheckEnumerationTree(const std
 			const size_t lim = std::min(currentNode->itemPositions.size(), t_InterestItems.size());
 			for (size_t i = 0; i < lim; ++i)
 			{
-				_finalSolution.insert(std::pair<int, coordinate>(t_InterestItems[i]->idx, currentNode->itemPositions[i]));
+				_finalSolution.insert_or_assign(t_InterestItems[i]->origIdx, currentNode->itemPositions[i]);
 			}
 			#endif
 			return solutionStatus::feasible;
@@ -1472,6 +1534,8 @@ find a subset of items containing all items that cannot be placed side by side w
 */
 void StripPacking::BLEU::preprocessingFixItems()
 {
+	_fixedItemCoordinates.clear();
+	_processedItems.clear();
 	// find the item with the minimal width
 	int minWidth = _allItems.back()->width;
 	int sumHeight = 0;
@@ -1479,7 +1543,10 @@ void StripPacking::BLEU::preprocessingFixItems()
 	for (const auto& it : _allItems)
 	{
 		if (it->width + minWidth > _W)
+		{
+			_fixedItemCoordinates.insert_or_assign(it->origIdx, StripPacking::coordinate(0, sumHeight));
 			sumHeight += it->height;
+		}
 		else
 		{
 			const_cast<item*>(it)->idxHelper = idx++;				// idxHelper stores the idx in the _processedItems.
@@ -1529,6 +1596,7 @@ void StripPacking::BLEU::preprocessingModifyItemWidth()
 void StripPacking::BLEU::preprocessItemHeight(std::vector<item*>& t_items, 
 	const int t_binHeight, int& t_binWidth)
 {
+	_heightFixedItemCoordinates.clear();
 	for (auto& i_it : t_items)
 	{
 		std::vector<int> integers;
@@ -1550,11 +1618,22 @@ void StripPacking::BLEU::preprocessItemHeight(std::vector<item*>& t_items,
 			minHeight = it->height;
 	}
 	std::list<item*> tmpItems;
+	std::vector<const item*> heightFixedItems;
 	for (const auto& it : t_items)
 	{
 		if (it->height + minHeight <= t_binHeight)
 			tmpItems.push_back(it);
-		else t_binWidth -= it->width;
+		else
+		{
+			heightFixedItems.push_back(it);
+			t_binWidth -= it->width;
+		}
+	}
+	int fixedX = t_binWidth;
+	for (const auto* it : heightFixedItems)
+	{
+		_heightFixedItemCoordinates.insert_or_assign(it->origIdx, StripPacking::coordinate(fixedX, 0));
+		fixedX += it->width;
 	}
 	t_items.clear();
 	int i = 0;

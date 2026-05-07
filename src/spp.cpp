@@ -17,12 +17,12 @@ flag = true, -->  width
 
 
 std::ostringstream StripPacking::item::ss;
-StripPacking::item::item(const int t_idx, const int t_width, const int t_height) :idx(t_idx), width(t_width), height(t_height)
+StripPacking::item::item(const int t_idx, const int t_width, const int t_height) :idx(t_idx), origIdx(t_idx), width(t_width), height(t_height)
 {
 	subItems.clear();
 }
 
-StripPacking::item::item(const int t_idx, const int t_width, const int t_height, const int t_idxHelper) : idx(t_idx), width(t_width), height(t_height),
+StripPacking::item::item(const int t_idx, const int t_width, const int t_height, const int t_idxHelper) : idx(t_idx), origIdx(t_idx), width(t_width), height(t_height),
 idxHelper(t_idxHelper)
 {
 	subItems.clear();

@@ -77,3 +77,29 @@ Current test set includes:
 ## License
 
 MIT. See [LICENSE](LICENSE).
+
+## Python API (PyPI)
+
+The package exposes:
+
+- `pack(items: list[tuple[int, int]], bin_width: int, branch_and_bound: bool, benders: bool, timeout: int) -> spp_result`
+- `plot_pack(result: spp_result)`
+
+`spp_result` contains:
+
+- `placements: dict[int, tuple[int, int]]` where key is item index and value is `(x, y)`
+- `items: list[tuple[int, int]]` original input items
+
+Additional fields are also provided: `bin_width`, `state`, and `height`.
+
+Example:
+
+```python
+from spp import pack, plot_pack
+
+items = [(3, 4), (2, 5), (4, 2)]
+res = pack(items=items, bin_width=6, branch_and_bound=True, benders=True, timeout=30)
+print(res.state, res.height, res.placements)
+if res.state == "completed":
+    fig, ax = plot_pack(res)
+```
