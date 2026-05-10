@@ -74,6 +74,48 @@ Current test set includes:
 - parser validation tests for malformed/valid input
 - CLI integration tests for argument validation, known-height regressions, and timeout reporting
 
+## Benchmark (Paper Comparison)
+
+We benchmarked the solver on the canonical `test/2sp` instances copied into `benchmark_instances`:
+
+- `BENG01..10`
+- `CGCUT01..03`
+- `GCUT01..04`
+- `HT01..09`
+- `NGCUT01..12`
+
+Run command used for each instance:
+
+```bash
+./build/spp --time_buget 120 --problem_path <instance.TXT>
+```
+
+Results are stored in:
+
+- `research/spp_run_120_results.csv`
+
+This CSV includes both:
+
+- solver output (`solver_height_120s`)
+- paper-reported BLUE results (`opt_height_or_bound`, `blue_runtime_sec`, `proven_optimal`)
+
+Summary (38 instances total):
+
+| Set   | Instances | Matched Paper Optimum | Timeout (`-1`) |
+|-------|-----------|-----------------------|----------------|
+| BENG  | 10        | 10                    | 0              |
+| CGCUT | 3         | 1                     | 2              |
+| GCUT  | 4         | 3                     | 1              |
+| HT    | 9         | 8                     | 1              |
+| NGCUT | 12        | 12                    | 0              |
+| Total | 38        | 34                    | 4              |
+
+Interpretation:
+
+- On all instances solved within the 120s limit, the returned height matches the paper optimum for this benchmark slice.
+- The current implementation times out on 4/38 instances (`CGCUT02`, `CGCUT03`, `GCUT04`, `HT08`), while the paper's BLUE implementation reports optimal solutions for them.
+- This supports that the solver behaves as an exact method when it closes an instance, but is currently weaker than the paper implementation in robustness/performance on harder cases.
+
 ## License
 
 MIT. See [LICENSE](LICENSE).
