@@ -65,7 +65,8 @@ set_tests_properties(spp_cli_time_budget_alias PROPERTIES
 
 add_test(
 	NAME spp_cli_unknown_argument
-	COMMAND ${CMAKE_COMMAND}
-		-DSPP_EXE=$<TARGET_FILE:spp>
-		-P ${CMAKE_CURRENT_SOURCE_DIR}/cli_unknown_argument.cmake
+	COMMAND $<TARGET_FILE:spp> --bad_flag 1
+)
+set_tests_properties(spp_cli_unknown_argument PROPERTIES
+	WILL_FAIL TRUE
 )
