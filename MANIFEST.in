@@ -1,0 +1,9 @@
+include README.md
+include LICENSE
+include pyproject.toml
+include setup.py
+
+recursive-include python *.py *.pyi *.cpp py.typed
+recursive-include src *.h *.hpp *.cpp
+recursive-include third_party/highs/include *.h *.hpp
+include third_party/highs/lib/libhighs.a

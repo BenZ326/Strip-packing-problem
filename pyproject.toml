@@ -1,0 +1,14 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "zephyr_pack"
+version = "0.2.0"
+description = "2D strip packing solver with Python API"
+readme = "README.md"
+requires-python = ">=3.9"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "Xiangyi Zhang" }]
+dependencies = ["matplotlib>=3.6"]

@@ -1,0 +1,30 @@
+# Build outputs
+/build/
+/CMakeFiles/
+/test/CMakeFiles/
+/CMakeCache.txt
+/cmake_install.cmake
+/CTestTestfile.cmake
+/Makefile
+/test/Makefile
+/test/cmake_install.cmake
+/test/CTestTestfile.cmake
+/test/solver_utils_test
+/test/solver_utils_test[1]_include.cmake
+/test/solver_utils_test[1]_tests.cmake
+
+# Binaries and libraries
+/spp
+/libstrip_packing_core.a
+
+# Logs and temporary runtime artifacts
+/Highs.log
+*.log
+
+# Python artifacts
+__pycache__/
+*.pyc
+
+# Editor/OS artifacts
+.DS_Store
+Thumbs.db
