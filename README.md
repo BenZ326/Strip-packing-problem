@@ -1,6 +1,6 @@
-# Strip Packing Problem
+# What does the repo do?
 
-This repository implements a 2D strip-packing solver based on combinatorial Benders cuts (as described in the Operations Research paper: https://pubsonline.informs.org/doi/abs/10.1287/opre.2013.1248).
+This repository offers the capability of solving the Strip Packing Problem exactly based on the solver proposed in the milestone paper https://pubsonline.informs.org/doi/abs/10.1287/opre.2013.1248.
 
 ## Requirements
 
