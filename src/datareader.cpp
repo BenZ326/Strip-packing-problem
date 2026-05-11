@@ -3,63 +3,93 @@
 #include <string>
 #include <sstream>
 #include <algorithm>
-#include<math.h>
+#include <memory>
+#include <stdexcept>
 #include "spp.h"
 
-
+namespace {
+int parseSingleIntegerLine(const std::string& line, const std::string& fieldName)
+{
+	std::istringstream iss(line);
+	int value = 0;
+	std::string extra;
+	if (!(iss >> value) || (iss >> extra))
+	{
+		throw std::runtime_error("Invalid " + fieldName + " line: \"" + line + "\"");
+	}
+	return value;
+}
+}
 
 int readData(const std::string& t_file, std::vector<const StripPacking::item*>& t_items)
 {
-	int maxWidth;
+	t_items.clear();
 	std::ifstream ff(t_file);
-	std::string line;
-	if (ff.is_open())
+	if (!ff.is_open())
 	{
-		int idx = 1;
-		std::getline(ff, line);
-		int n = std::stoi(line);
-		while (std::getline(ff, line))
-		{
-			if (idx == 1)
-			{
-				maxWidth = std::stoi(line);
-				++idx;
-				continue;
-			}
-			auto res = parseLine(line);
-			StripPacking::item* rec = new StripPacking::item(res[0], res[1], res[2]);
-			t_items.push_back(rec);
-			if (res[0] == n) break;
-		}
-
+		throw std::runtime_error("Cannot open input file: " + t_file);
 	}
-	else 		std::cout << "cann't open the file" << t_file << std::endl;
-	return maxWidth;
-}
 
-int convertVec(std::vector<int>& tmp)
-{
-	int sum = 0;
-	for (size_t i = 0; i < tmp.size(); ++i) sum += tmp[i] * std::pow(10, (tmp.size() - i - 1));
-	tmp.clear();
-	return sum;
-}
-
-std::vector<int> parseLine(std::string t_line)
-{
-	std::vector<int> res;
-	std::string sep = " ";
-	size_t pos = 0;
-	std::vector<int> tmp;
-	for (auto it : t_line)
+	std::string line;
+	if (!std::getline(ff, line))
 	{
-		if (isspace(it))
+		throw std::runtime_error("Missing item count line in file: " + t_file);
+	}
+	const int expectedItemCount = parseSingleIntegerLine(line, "item count");
+	if (expectedItemCount <= 0)
+	{
+		throw std::runtime_error("Item count must be positive in file: " + t_file);
+	}
+
+	if (!std::getline(ff, line))
+	{
+		throw std::runtime_error("Missing strip width line in file: " + t_file);
+	}
+	const int maxWidth = parseSingleIntegerLine(line, "strip width");
+	if (maxWidth <= 0)
+	{
+		throw std::runtime_error("Strip width must be positive in file: " + t_file);
+	}
+
+	std::vector<std::unique_ptr<StripPacking::item>> parsedItems;
+	parsedItems.reserve(static_cast<size_t>(expectedItemCount));
+
+	while (std::getline(ff, line))
+	{
+		if (line.empty())
 		{
-			if (!tmp.empty()) res.push_back(convertVec(tmp));
 			continue;
 		}
-		else tmp.push_back(it - '0');
+
+		std::istringstream iss(line);
+		int itemId = 0;
+		int width = 0;
+		int height = 0;
+		std::string extra;
+		if (!(iss >> itemId >> width >> height) || (iss >> extra))
+		{
+			throw std::runtime_error("Invalid item row in file " + t_file + ": \"" + line + "\"");
+		}
+		if (width <= 0 || height <= 0)
+		{
+			throw std::runtime_error("Item width/height must be positive in file " + t_file + ": \"" + line + "\"");
+		}
+		parsedItems.push_back(std::make_unique<StripPacking::item>(itemId, width, height));
+		if (parsedItems.size() > static_cast<size_t>(expectedItemCount))
+		{
+			throw std::runtime_error("Input file has more than n item rows: " + t_file);
+		}
 	}
-	if (!tmp.empty()) res.push_back(convertVec(tmp));
-	return res;
+
+	if (parsedItems.size() != static_cast<size_t>(expectedItemCount))
+	{
+		throw std::runtime_error("Input file has " + std::to_string(parsedItems.size()) + " item rows but n is "
+			+ std::to_string(expectedItemCount) + ": " + t_file);
+	}
+
+	for (auto& it : parsedItems)
+	{
+		t_items.push_back(it.release());
+	}
+	return maxWidth;
 }
