@@ -116,6 +116,57 @@ Interpretation:
 - The current implementation times out on 4/38 instances (`CGCUT02`, `CGCUT03`, `GCUT04`, `HT08`), while the paper's BLUE implementation reports optimal solutions for them.
 - This supports that the solver behaves as an exact method when it closes an instance, but is currently weaker than the paper implementation in robustness/performance on harder cases.
 
+## CP-SAT Solver Performance
+
+A standalone OR-Tools CP-SAT prototype is available in `python/cp_sat_solver.py`. It is independent from the C++/HiGHS solver and directly models Section 2.2 with binary horizontal-position variables, integer vertical coordinates, column-load constraints, and per-column `add_no_overlap` constraints over optional intervals.
+
+Run command used for each instance:
+
+```bash
+PYTHONPATH=python python - <<'PY'
+from cp_sat_solver import CPSATSolver
+# parse one benchmark_instances/*.TXT file into (items, strip_width), then:
+result = CPSATSolver(items, strip_width).solve(time_limit_seconds=120)
+PY
+```
+
+Partial results are stored in:
+
+- `research/cpsat_run_120_results.csv`
+
+The current CP-SAT run was intentionally stopped after 12/38 benchmark instances, so this is not a full-suite comparison. Status `optimal` means CP-SAT proved optimality within 120 seconds; status `feasible` means it found a non-overlapping layout but did not close the optimality gap within the time limit.
+
+Summary of completed CP-SAT rows:
+
+| Set   | Completed Instances | Optimal | Feasible Only |
+|-------|---------------------|---------|---------------|
+| BENG  | 10                  | 2       | 8             |
+| CGCUT | 2                   | 1       | 1             |
+| Total | 12                  | 3       | 9             |
+
+Instance-level CP-SAT results so far:
+
+| Instance | Items | Width | Status | Height 120s | Bound | Wall Time (s) |
+|----------|-------|-------|--------|-------------|-------|---------------|
+| BENG01   | 20    | 25    | optimal | 30          | 30    | 2.61          |
+| BENG02   | 40    | 25    | feasible | 58         | 57    | 120.14        |
+| BENG03   | 60    | 25    | feasible | 86         | 84    | 120.31        |
+| BENG04   | 80    | 25    | feasible | 112        | 107   | 120.17        |
+| BENG05   | 100   | 25    | feasible | 148        | 134   | 120.13        |
+| BENG06   | 40    | 40    | optimal | 36          | 36    | 52.67         |
+| BENG07   | 80    | 40    | feasible | 72         | 67    | 120.16        |
+| BENG08   | 120   | 40    | feasible | 115        | 101   | 120.08        |
+| BENG09   | 160   | 40    | feasible | 151        | 126   | 120.10        |
+| BENG10   | 200   | 40    | feasible | 189        | 156   | 120.07        |
+| CGCUT01  | 16    | 10    | optimal | 27          | 27    | 0.02          |
+| CGCUT02  | 23    | 70    | feasible | 65         | 63    | 120.30        |
+
+Interpretation:
+
+- The direct CP-SAT model can solve small instances and prove optimality on `BENG01`, `BENG06`, and `CGCUT01` within 120 seconds.
+- On most completed medium/larger BENG instances, CP-SAT finds feasible layouts but leaves a positive optimality gap at the 120-second limit.
+- This direct full-model CP-SAT prototype is useful as a correctness baseline and independent comparison, but the current C++ Benders-style solver is substantially stronger on this benchmark slice.
+
 ## License
 
 MIT. See [LICENSE](LICENSE).
@@ -145,3 +196,10 @@ print(res.state, res.height, res.placements)
 if res.state == "completed":
     fig, ax = plot_pack(res)
 ```
+
+
+## Roadmap for V 0.2.1
+* Implement CP_SAT to solve the strip packing problem
+* Compare the CP_SAT against our solver on all the instances
+* Better readme file to clarify what does the repo do;
+* Make it clear that before v 1.0.0, the repo is still not in a stable state.
