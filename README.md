@@ -199,7 +199,5 @@ if res.state == "completed":
 
 
 ## Roadmap for V 0.2.1
-* Implement CP_SAT to solve the strip packing problem
-* Compare the CP_SAT against our solver on all the instances
 * Better readme file to clarify what does the repo do;
 * Make it clear that before v 1.0.0, the repo is still not in a stable state.
